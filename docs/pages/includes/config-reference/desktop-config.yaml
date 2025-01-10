@@ -70,19 +70,30 @@ windows_desktop_service:
   # to users and computers in a child domain.
   pki_domain: root.example.com
 
-  # (optional) hosts is a list of hostnames to register as WindowsDesktop
-  # objects in Teleport. These hosts must be part of the Active Directory
-  # domain configured to grant Teleport access.
-  hosts:
-  - win1.dev.example.com
-  - win2.dev.example.com
-  # (optional) non_ad_hosts is a list of hostnames that are not part of an
-  # Active Directory domain that you want to register as WindowsDesktop objects in Teleport.
-  # These hosts require the Teleport CA certificate and service, as described in
-  # https://goteleport.com/docs/desktop-access/getting-started/
-  non_ad_hosts:
-  - win3.prod.example.com
-  - win4.prod.example.com
+  # (optional) Configures the address of the Kerberos Key Distribution Center,
+  # which is used to support RDP Network Level Authentication (NLA).
+  # If empty, the LDAP address will be used instead.
+  #
+  # example: kdc.example.com:88.
+  # The port is optional and defaults to port 88 if unspecified.
+  #
+  # Note: NLA is only supported in Active Directory environments - this field has
+  # no effect when connecting to desktops as local Windows users.
+  kdc_address: '$KDC_SERVER_ADDRESS'
+
+  # (optional) static_hosts is a list of hosts to register as WindowsDesktop
+  # objects in Teleport. You can define host name and labels directly.
+  static_hosts:
+  - name: example1
+    ad: false
+    addr: win1.dev.example.com
+    labels:
+      datacenter: dc1
+  - ad: true
+    addr: win2.dev.example.com # name will be generated based on address
+    labels:
+      controller: all
+
   # (optional) settings for enabling automatic desktop discovery via LDAP
   discovery:
     # The wildcard '*' character tells Teleport to discover all the hosts in
@@ -98,13 +109,17 @@ windows_desktop_service:
     # The key of the label will be "ldap/" + the value of the attribute.
     label_attributes:
     - location
-  # Rules for applying labels to Windows hosts based on regular expressions
+
+  # (optional) configure a set of label selectors for dynamic registration.
+  # If specified, this service will monitor the cluster for dynamic_windows_desktop
+  # and automatically proxy connections for desktops with matching labels.
+  resources:
+  - labels:
+      "env": "dev"
+
+  # (optional) rules for applying labels to Windows hosts based on regular expressions
   # matched against the host name. If multiple rules match, the desktop will
   # get the union of all matching labels.
-  #
-  # The rules for matching static hosts (hosts and non_ad_hosts) and discovered hosts
-  # are slightly different. See https://goteleport.com/docs/desktop-access/rbac/
-  # for details.
   host_labels:
   - match: '^.*\.dev\.example\.com'
     labels:

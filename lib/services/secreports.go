@@ -1,18 +1,20 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package services
 
@@ -101,9 +103,8 @@ func MarshalAuditQuery(in *secreports.AuditQuery, opts ...MarshalOption) ([]byte
 		return nil, trace.Wrap(err)
 	}
 
-	if !cfg.PreserveResourceID {
+	if !cfg.PreserveRevision {
 		copy := *in
-		copy.SetResourceID(0)
 		in = &copy
 	}
 	return utils.FastMarshal(in)
@@ -125,9 +126,6 @@ func UnmarshalAuditQuery(data []byte, opts ...MarshalOption) (*secreports.AuditQ
 	if err := out.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if cfg.ID != 0 {
-		out.SetResourceID(cfg.ID)
-	}
 	if !cfg.Expires.IsZero() {
 		out.SetExpiry(cfg.Expires)
 	}
@@ -145,9 +143,8 @@ func MarshalSecurityReport(in *secreports.Report, opts ...MarshalOption) ([]byte
 		return nil, trace.Wrap(err)
 	}
 
-	if !cfg.PreserveResourceID {
+	if !cfg.PreserveRevision {
 		copy := *in
-		copy.SetResourceID(0)
 		in = &copy
 	}
 	return utils.FastMarshal(in)
@@ -169,9 +166,6 @@ func UnmarshalSecurityReport(data []byte, opts ...MarshalOption) (*secreports.Re
 	if err := out.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if cfg.ID != 0 {
-		out.SetResourceID(cfg.ID)
-	}
 	if !cfg.Expires.IsZero() {
 		out.SetExpiry(cfg.Expires)
 	}
@@ -187,9 +181,8 @@ func MarshalSecurityReportState(in *secreports.ReportState, opts ...MarshalOptio
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if !cfg.PreserveResourceID {
+	if !cfg.PreserveRevision {
 		copy := *in
-		copy.SetResourceID(0)
 		in = &copy
 	}
 	return utils.FastMarshal(in)
@@ -211,9 +204,6 @@ func UnmarshalSecurityReportState(data []byte, opts ...MarshalOption) (*secrepor
 	if err := out.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if cfg.ID != 0 {
-		out.SetResourceID(cfg.ID)
-	}
 	if !cfg.Expires.IsZero() {
 		out.SetExpiry(cfg.Expires)
 	}
@@ -229,9 +219,8 @@ func MarshalSecurityCostLimiter(in *secreports.CostLimiter, opts ...MarshalOptio
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if !cfg.PreserveResourceID {
+	if !cfg.PreserveRevision {
 		copy := *in
-		copy.SetResourceID(0)
 		in = &copy
 	}
 	return utils.FastMarshal(in)
@@ -252,9 +241,6 @@ func UnmarshalSecurityCostLimiter(data []byte, opts ...MarshalOption) (*secrepor
 	}
 	if err := out.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
-	}
-	if cfg.ID != 0 {
-		out.SetResourceID(cfg.ID)
 	}
 	if !cfg.Expires.IsZero() {
 		out.SetExpiry(cfg.Expires)

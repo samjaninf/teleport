@@ -1,21 +1,24 @@
 /**
- * Copyright 2023 Gravitational, Inc
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-import { renderHook } from '@testing-library/react-hooks';
+import { renderHook } from '@testing-library/react';
+
+import { rootClusterUri } from 'teleterm/services/tshd/testHelpers';
 
 import {
   ResourcesContextProvider,
@@ -27,13 +30,28 @@ describe('requestResourcesRefresh', () => {
     const wrapper = ({ children }) => (
       <ResourcesContextProvider>{children}</ResourcesContextProvider>
     );
-    const { result } = renderHook(() => useResourcesContext(), { wrapper });
+    const { result } = renderHook(
+      () => ({
+        clusterUri1: useResourcesContext('/clusters/teleport-local'),
+        clusterUri2: useResourcesContext('/clusters/teleport-remote'),
+      }),
+      {
+        wrapper,
+      }
+    );
 
-    const listener = jest.fn();
-    result.current.onResourcesRefreshRequest(listener);
-    result.current.requestResourcesRefresh();
+    const listener1 = jest.fn();
+    const listener2 = jest.fn();
+    result.current.clusterUri1.onResourcesRefreshRequest(listener1);
+    result.current.clusterUri2.onResourcesRefreshRequest(listener2);
 
-    expect(listener).toHaveBeenCalledTimes(1);
+    result.current.clusterUri1.requestResourcesRefresh();
+    expect(listener1).toHaveBeenCalledTimes(1);
+    expect(listener2).not.toHaveBeenCalled();
+
+    result.current.clusterUri2.requestResourcesRefresh();
+    expect(listener1).toHaveBeenCalledTimes(1); // it has not been called again
+    expect(listener2).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -42,7 +60,9 @@ describe('onResourcesRefreshRequest cleanup function', () => {
     const wrapper = ({ children }) => (
       <ResourcesContextProvider>{children}</ResourcesContextProvider>
     );
-    const { result } = renderHook(() => useResourcesContext(), { wrapper });
+    const { result } = renderHook(() => useResourcesContext(rootClusterUri), {
+      wrapper,
+    });
 
     const listener = jest.fn();
     const { cleanup } = result.current.onResourcesRefreshRequest(listener);

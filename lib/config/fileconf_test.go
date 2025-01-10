@@ -1,18 +1,20 @@
 /*
-Copyright 2015 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package config
 
@@ -210,7 +212,6 @@ func TestAuthenticationSection(t *testing.T) {
 					"second_factor": "otp",
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				Type:         "local",
 				SecondFactor: "otp",
@@ -223,7 +224,6 @@ func TestAuthenticationSection(t *testing.T) {
 					"second_factor": "off",
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				Type:         "local",
 				SecondFactor: "off",
@@ -244,7 +244,6 @@ func TestAuthenticationSection(t *testing.T) {
 					},
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				Type:         "local",
 				SecondFactor: "u2f",
@@ -278,7 +277,6 @@ func TestAuthenticationSection(t *testing.T) {
 					},
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				Type:         "local",
 				SecondFactor: "webauthn",
@@ -311,7 +309,6 @@ func TestAuthenticationSection(t *testing.T) {
 					},
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				Type:         "local",
 				SecondFactor: "on",
@@ -336,7 +333,6 @@ func TestAuthenticationSection(t *testing.T) {
 					"connector_name": "passwordless",
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				Type:         "local",
 				SecondFactor: "on",
@@ -359,7 +355,6 @@ func TestAuthenticationSection(t *testing.T) {
 					"connector_name": "headless",
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				Type:         "local",
 				SecondFactor: "on",
@@ -381,7 +376,6 @@ func TestAuthenticationSection(t *testing.T) {
 					},
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				DeviceTrust: &DeviceTrust{
 					Mode: "required",
@@ -400,12 +394,71 @@ func TestAuthenticationSection(t *testing.T) {
 					},
 				}
 			},
-			expectError: require.NoError,
 			expected: &AuthenticationConfig{
 				DeviceTrust: &DeviceTrust{
 					Mode:       "required",
 					AutoEnroll: "yes",
 				},
+			},
+		}, {
+			desc: "signature suite empty",
+			mutate: func(cfg cfgMap) {
+				cfg["auth_service"].(cfgMap)["authentication"] = cfgMap{
+					"signature_algorithm_suite": "",
+				}
+			},
+			expected: &AuthenticationConfig{
+				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_UNSPECIFIED,
+			},
+		}, {
+			desc: "signature suite legacy",
+			mutate: func(cfg cfgMap) {
+				cfg["auth_service"].(cfgMap)["authentication"] = cfgMap{
+					"signature_algorithm_suite": "legacy",
+				}
+			},
+			expected: &AuthenticationConfig{
+				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_LEGACY,
+			},
+		}, {
+			desc: "signature suite balanced-v1",
+			mutate: func(cfg cfgMap) {
+				cfg["auth_service"].(cfgMap)["authentication"] = cfgMap{
+					"signature_algorithm_suite": "balanced-v1",
+				}
+			},
+			expected: &AuthenticationConfig{
+				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
+			},
+		}, {
+			desc: "signature suite fips-v1",
+			mutate: func(cfg cfgMap) {
+				cfg["auth_service"].(cfgMap)["authentication"] = cfgMap{
+					"signature_algorithm_suite": "fips-v1",
+				}
+			},
+			expected: &AuthenticationConfig{
+				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_FIPS_V1,
+			},
+		}, {
+			desc: "signature suite hsm-v1",
+			mutate: func(cfg cfgMap) {
+				cfg["auth_service"].(cfgMap)["authentication"] = cfgMap{
+					"signature_algorithm_suite": "hsm-v1",
+				}
+			},
+			expected: &AuthenticationConfig{
+				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_HSM_V1,
+			},
+		}, {
+			desc: "signature suite typo",
+			mutate: func(cfg cfgMap) {
+				cfg["auth_service"].(cfgMap)["authentication"] = cfgMap{
+					"signature_algorithm_suite": "balanced-v0",
+				}
+			},
+			expectError: func(t require.TestingT, err error, msgAndArgs ...interface{}) {
+				require.ErrorContains(t, err, "invalid value: balanced-v0")
 			},
 		},
 	}
@@ -413,7 +466,11 @@ func TestAuthenticationSection(t *testing.T) {
 		t.Run(tt.desc, func(t *testing.T) {
 			text := bytes.NewBuffer(editConfig(t, tt.mutate))
 			cfg, err := ReadConfig(text)
-			tt.expectError(t, err)
+			if tt.expectError != nil {
+				tt.expectError(t, err)
+				return
+			}
+			require.NoError(t, err)
 
 			require.Empty(t, cmp.Diff(cfg.Auth.Authentication, tt.expected))
 		})
@@ -521,7 +578,7 @@ func TestAuthenticationConfig_Parse_StaticToken(t *testing.T) {
 				Token:   tt.token,
 				Expires: provisionToken.Expires,
 			}
-			require.Equal(t, provisionToken, want)
+			require.Equal(t, want, provisionToken)
 		})
 	}
 }

@@ -1,56 +1,49 @@
 /**
- * Copyright 2022 Gravitational, Inc.
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-
+import { render, screen } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { rest } from 'msw';
 import { MemoryRouter } from 'react-router';
-
-import { render, screen, waitFor } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
 
+import { Theme } from 'gen-proto-ts/teleport/userpreferences/v1/theme_pb';
+
 import cfg from 'teleport/config';
-
+import { KeysEnum } from 'teleport/services/storageService';
 import { UserContextProvider } from 'teleport/User';
-
-import { ThemePreference } from 'teleport/services/userPreferences/types';
 import { useUser } from 'teleport/User/UserContext';
-import { KeysEnum } from 'teleport/services/localStorage';
 
 function ThemeName() {
   const { preferences } = useUser();
 
   return (
-    <div>
-      theme: {preferences.theme === ThemePreference.Light ? 'light' : 'dark'}
-    </div>
+    <div>theme: {preferences.theme === Theme.LIGHT ? 'light' : 'dark'}</div>
   );
 }
 
 describe('user context - success state', () => {
   const server = setupServer(
-    rest.get(cfg.api.userPreferencesPath, (req, res, ctx) => {
-      return res(
-        ctx.json({
-          theme: ThemePreference.Light,
-          assist: {},
-        })
-      );
+    http.get(cfg.api.userPreferencesPath, () => {
+      return HttpResponse.json({
+        theme: Theme.LIGHT,
+      });
     })
   );
 
@@ -72,40 +65,12 @@ describe('user context - success state', () => {
 
     expect(theme).toBeInTheDocument();
   });
-
-  it('should migrate the previous theme setting from local storage', async () => {
-    let updateBody: { theme?: ThemePreference } = {};
-
-    server.use(
-      rest.put(cfg.api.userPreferencesPath, async (req, res, ctx) => {
-        updateBody = await req.json();
-
-        return res(ctx.status(200), ctx.json({}));
-      })
-    );
-
-    localStorage.setItem(KeysEnum.THEME, 'dark');
-
-    render(
-      <MemoryRouter>
-        <UserContextProvider>
-          <ThemeName />
-        </UserContextProvider>
-      </MemoryRouter>
-    );
-
-    await waitFor(() => expect(updateBody.theme).toEqual(ThemePreference.Dark));
-
-    const theme = await screen.findByText(/theme: dark/i);
-
-    expect(theme).toBeInTheDocument();
-  });
 });
 
 describe('user context - error state', () => {
   const server = setupServer(
-    rest.get(cfg.api.userPreferencesPath, (req, res, ctx) => {
-      return res(ctx.status(500));
+    http.get(cfg.api.userPreferencesPath, () => {
+      return HttpResponse.json(null, { status: 500 });
     })
   );
 
@@ -128,28 +93,11 @@ describe('user context - error state', () => {
     expect(theme).toBeInTheDocument();
   });
 
-  it('should render with the theme from the previous local storage setting', async () => {
-    localStorage.setItem(KeysEnum.THEME, 'dark');
-
-    render(
-      <MemoryRouter>
-        <UserContextProvider>
-          <ThemeName />
-        </UserContextProvider>
-      </MemoryRouter>
-    );
-
-    const theme = await screen.findByText(/theme: dark/i);
-
-    expect(theme).toBeInTheDocument();
-  });
-
   it('should render with the settings from local storage', async () => {
     localStorage.setItem(
       KeysEnum.USER_PREFERENCES,
       JSON.stringify({
         theme: 'dark',
-        assist: {},
       })
     );
 

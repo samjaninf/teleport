@@ -1,31 +1,36 @@
-/*
-Copyright 2023 Gravitational, Inc.
+/**
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+import { useState } from 'react';
 
-    http://www.apache.org/licenses/LICENSE-2.0
+import { Box, Flex } from 'design';
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-import React from 'react';
-import { Flex, Box } from 'design';
-
-import { SelectCreatable, Option } from '../Select';
+import { Option, SelectCreatable } from '../Select';
 
 export default {
   title: 'Shared/SelectCreatable',
 };
 
 export const Selects = () => {
-  const [input, setInput] = React.useState('');
-  const [selected, setSelected] = React.useState<Option[]>();
+  const [input, setInput] = useState('');
+  const [inputMulti, setInputMulti] = useState('');
+  const [selected, setSelected] = useState<Option>();
+  const [selectedMulti, setSelectedMulti] = useState<readonly Option[]>();
 
   return (
     // Note that these examples don't provide for great UX. Implementations
@@ -40,10 +45,10 @@ export const Selects = () => {
           isMulti
           isClearable
           isSearchable
-          inputValue={input}
-          value={selected}
-          onInputChange={v => setInput(v)}
-          onChange={v => setSelected((v as Option[] | null) || [])}
+          inputValue={inputMulti}
+          value={selectedMulti}
+          onInputChange={v => setInputMulti(v)}
+          onChange={v => setSelectedMulti(v)}
         />
         Note: accept new candidate with Enter or mouse click
       </Box>
@@ -54,7 +59,7 @@ export const Selects = () => {
           inputValue={input}
           value={selected}
           onInputChange={v => setInput(v)}
-          onChange={v => setSelected((v as Option[] | null) || [])}
+          onChange={v => setSelected(v)}
         />
       </Box>
     </Flex>

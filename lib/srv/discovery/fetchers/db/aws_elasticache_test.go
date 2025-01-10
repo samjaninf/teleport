@@ -1,18 +1,20 @@
 /*
-Copyright 2022 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package db
 
@@ -26,7 +28,6 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/cloud"
 	"github.com/gravitational/teleport/lib/cloud/mocks"
-	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/srv/discovery/common"
 )
 
@@ -104,16 +105,16 @@ func makeElastiCacheCluster(t *testing.T, name, region, env string, opts ...func
 		Key:   aws.String("env"),
 		Value: aws.String(env),
 	}}
-	extraLabels := services.ExtraElastiCacheLabels(cluster, tags, nil, nil)
+	extraLabels := common.ExtraElastiCacheLabels(cluster, tags, nil, nil)
 
 	if aws.BoolValue(cluster.ClusterEnabled) {
-		database, err := services.NewDatabaseFromElastiCacheConfigurationEndpoint(cluster, extraLabels)
+		database, err := common.NewDatabaseFromElastiCacheConfigurationEndpoint(cluster, extraLabels)
 		require.NoError(t, err)
 		common.ApplyAWSDatabaseNameSuffix(database, types.AWSMatcherElastiCache)
 		return cluster, types.Databases{database}, tags
 	}
 
-	databases, err := services.NewDatabasesFromElastiCacheNodeGroups(cluster, extraLabels)
+	databases, err := common.NewDatabasesFromElastiCacheNodeGroups(cluster, extraLabels)
 	require.NoError(t, err)
 	for _, database := range databases {
 		common.ApplyAWSDatabaseNameSuffix(database, types.AWSMatcherElastiCache)

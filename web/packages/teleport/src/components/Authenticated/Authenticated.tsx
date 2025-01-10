@@ -1,29 +1,34 @@
-/*
-Copyright 2019-2021 Gravitational, Inc.
+/**
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+import React, { PropsWithChildren, useEffect } from 'react';
 
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-import React, { useEffect } from 'react';
-import { throttle } from 'shared/utils/highbar';
-import Logger from 'shared/libs/logger';
-import useAttempt from 'shared/hooks/useAttemptNext';
-import { getErrMessage } from 'shared/utils/errorType';
 import { Box, Indicator } from 'design';
+import { TrustedDeviceRequirement } from 'gen-proto-ts/teleport/legacy/types/trusted_device_requirement_pb';
+import useAttempt from 'shared/hooks/useAttemptNext';
+import Logger from 'shared/libs/logger';
+import { getErrMessage } from 'shared/utils/errorType';
+import { throttle } from 'shared/utils/highbar';
 
-import session from 'teleport/services/websession';
-import localStorage from 'teleport/services/localStorage';
+import { StyledIndicator } from 'teleport/Main';
 import { ApiError } from 'teleport/services/api/parseError';
+import { storageService } from 'teleport/services/storageService';
+import session from 'teleport/services/websession';
 
 import { ErrorDialog } from './ErrorDialogue';
 
@@ -43,24 +48,30 @@ const events = [
   'pointerdown',
 ];
 
-const Authenticated: React.FC = ({ children }) => {
+const Authenticated: React.FC<PropsWithChildren> = ({ children }) => {
   const { attempt, setAttempt } = useAttempt('processing');
 
   useEffect(() => {
     const checkIfUserIsAuthenticated = async () => {
       if (!session.isValid()) {
         logger.warn('invalid session');
-        session.logout(true /* rememberLocation */);
+        session.clearBrowserSession(true /* rememberLocation */);
         return;
       }
 
       try {
-        await session.validateCookieAndSession();
+        const result = await session.validateCookieAndSession();
+        if (result.hasDeviceExtensions) {
+          session.setIsDeviceTrusted();
+        }
+        if (result.requiresDeviceTrust === TrustedDeviceRequirement.REQUIRED) {
+          session.setDeviceTrustRequired();
+        }
         setAttempt({ status: 'success' });
       } catch (e) {
         if (e instanceof ApiError && e.response?.status == 403) {
           logger.warn('invalid session');
-          session.logout(true /* rememberLocation */);
+          session.clearBrowserSession(true /* rememberLocation */);
           // No need to update attempt, as `logout` will
           // redirect user to login page.
           return;
@@ -98,7 +109,9 @@ const Authenticated: React.FC = ({ children }) => {
 
   return (
     <Box textAlign="center">
-      <Indicator />
+      <StyledIndicator>
+        <Indicator />
+      </StyledIndicator>
     </Box>
   );
 };
@@ -117,22 +130,22 @@ function startActivityChecker(ttl = 0) {
   // ie. browser still openend but all app tabs closed.
   if (isInactive(adjustedTtl)) {
     logger.warn('inactive session');
-    session.logout();
+    session.logoutWithoutSlo();
     return;
   }
 
   // Initialize or renew the storage before starting interval.
-  localStorage.setLastActive(Date.now());
+  storageService.setLastActive(Date.now());
 
   const intervalId = setInterval(() => {
     if (isInactive(adjustedTtl)) {
       logger.warn('inactive session');
-      session.logout();
+      session.logoutWithoutSlo();
     }
   }, ACTIVITY_CHECKER_INTERVAL_MS);
 
   const throttled = throttle(() => {
-    localStorage.setLastActive(Date.now());
+    storageService.setLastActive(Date.now());
   }, ACTIVITY_EVENT_DELAY_MS);
 
   events.forEach(event => window.addEventListener(event, throttled));
@@ -147,6 +160,6 @@ function startActivityChecker(ttl = 0) {
 }
 
 function isInactive(ttl = 0) {
-  const lastActive = localStorage.getLastActive();
+  const lastActive = storageService.getLastActive();
   return lastActive > 0 && Date.now() - lastActive > ttl;
 }

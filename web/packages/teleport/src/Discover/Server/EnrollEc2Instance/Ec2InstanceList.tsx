@@ -1,39 +1,32 @@
 /**
- * Copyright 2023 Gravitational, Inc.
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useEffect } from 'react';
-import { Box, Link, Text } from 'design';
+import { Text } from 'design';
 import Table from 'design/DataTable';
-import { Danger } from 'design/Alert';
 import { FetchStatus } from 'design/DataTable/types';
 import { Attempt } from 'shared/hooks/useAttemptNext';
 
-import cfg from 'teleport/config';
-
-import { TextSelectCopyMulti } from 'teleport/components/TextSelectCopy';
-import { CommandBox } from 'teleport/Discover/Shared/CommandBox';
 import {
-  RadioCell,
   DisableableCell as Cell,
-  Labels,
   labelMatcher,
+  Labels,
+  RadioCell,
 } from 'teleport/Discover/Shared';
-
-import { NodeMeta, useDiscover } from 'teleport/Discover/useDiscover';
-import { Regions } from 'teleport/services/integrations';
 
 import { CheckedEc2Instance } from './EnrollEc2Instance';
 
@@ -44,7 +37,7 @@ type Props = {
   fetchNextPage(): void;
   onSelectInstance(item: CheckedEc2Instance): void;
   selectedInstance?: CheckedEc2Instance;
-  region: Regions;
+  wantAutoDiscover: boolean;
 };
 
 export const Ec2InstanceList = ({
@@ -54,45 +47,12 @@ export const Ec2InstanceList = ({
   fetchNextPage,
   onSelectInstance,
   selectedInstance,
-  region,
+  wantAutoDiscover,
 }: Props) => {
-  const [scriptUrl, setScriptUrl] = useState('');
   const hasError = attempt.status === 'failed';
-  const { agentMeta } = useDiscover();
-
-  const showConfigureScript =
-    hasError &&
-    attempt.statusText.includes('StatusCode: 403, RequestID:') &&
-    attempt.statusText.includes('operation error');
-
-  // Regenerate the script any time the region changes.
-  useEffect(() => {
-    if (region) {
-      generateAutoConfigScript();
-    }
-  }, [region]);
-
-  function generateAutoConfigScript() {
-    const newScriptUrl = cfg.getEc2InstanceConnectIAMConfigureScriptUrl({
-      region: region,
-
-      // arn's are formatted as `don-care-about-this-part/role-arn`.
-      // We are splitting by slash and getting the last element.
-      awsOidcRoleArn: (agentMeta as NodeMeta).integration.spec.roleArn
-        .split('/')
-        .pop(),
-    });
-
-    setScriptUrl(newScriptUrl);
-  }
-
-  const disabledText = `This EC2 instance is already enrolled and is a part of this cluster`;
 
   return (
     <>
-      {hasError && !showConfigureScript && (
-        <Danger>{attempt.statusText}</Danger>
-      )}
       {!hasError && (
         <Table
           data={items}
@@ -110,9 +70,11 @@ export const Ec2InstanceList = ({
                     key={item.awsMetadata.instanceId}
                     isChecked={isChecked}
                     onChange={onSelectInstance}
-                    disabled={item.ec2InstanceExists}
                     value={item.awsMetadata.instanceId}
-                    disabledText={disabledText}
+                    {...disabledStates(
+                      item.ec2InstanceExists,
+                      wantAutoDiscover
+                    )}
                   />
                 );
               },
@@ -121,7 +83,7 @@ export const Ec2InstanceList = ({
               altKey: 'name',
               headerText: 'Name',
               render: ({ labels, ec2InstanceExists }) => (
-                <Cell disabledText={disabledText} disabled={ec2InstanceExists}>
+                <Cell {...disabledStates(ec2InstanceExists, wantAutoDiscover)}>
                   {labels.find(label => label.name === 'Name')?.value}
                 </Cell>
               ),
@@ -130,7 +92,7 @@ export const Ec2InstanceList = ({
               key: 'hostname',
               headerText: 'Hostname',
               render: ({ hostname, ec2InstanceExists }) => (
-                <Cell disabledText={disabledText} disabled={ec2InstanceExists}>
+                <Cell {...disabledStates(ec2InstanceExists, wantAutoDiscover)}>
                   {hostname}
                 </Cell>
               ),
@@ -139,7 +101,7 @@ export const Ec2InstanceList = ({
               key: 'addr',
               headerText: 'Address',
               render: ({ addr, ec2InstanceExists }) => (
-                <Cell disabledText={disabledText} disabled={ec2InstanceExists}>
+                <Cell {...disabledStates(ec2InstanceExists, wantAutoDiscover)}>
                   {addr}
                 </Cell>
               ),
@@ -148,7 +110,7 @@ export const Ec2InstanceList = ({
               altKey: 'instanceId',
               headerText: 'AWS Instance ID',
               render: ({ awsMetadata, ec2InstanceExists }) => (
-                <Cell disabledText={disabledText} disabled={ec2InstanceExists}>
+                <Cell {...disabledStates(ec2InstanceExists, wantAutoDiscover)}>
                   <Text
                     css={`
                       text-wrap: nowrap;
@@ -163,7 +125,7 @@ export const Ec2InstanceList = ({
               key: 'labels',
               headerText: 'Labels',
               render: ({ labels, ec2InstanceExists }) => (
-                <Cell disabledText={disabledText} disabled={ec2InstanceExists}>
+                <Cell {...disabledStates(ec2InstanceExists, wantAutoDiscover)}>
                   <Labels labels={labels} />
                 </Cell>
               ),
@@ -176,34 +138,17 @@ export const Ec2InstanceList = ({
           isSearchable
         />
       )}
-      {showConfigureScript && (
-        <Box mt={4}>
-          <CommandBox
-            header={
-              <>
-                <Text bold>Configure your AWS IAM permissions</Text>
-                <Text typography="subtitle1" mb={3}>
-                  We were unable to list your EC2 instances. Run the command
-                  below on your{' '}
-                  <Link
-                    href="https://console.aws.amazon.com/cloudshell/home"
-                    target="_blank"
-                  >
-                    AWS CloudShell
-                  </Link>{' '}
-                  to configure your IAM permissions. Then press the refresh
-                  button above.
-                </Text>
-              </>
-            }
-            hasTtl={false}
-          >
-            <TextSelectCopyMulti
-              lines={[{ text: `bash -c "$(curl '${scriptUrl}')"` }]}
-            />
-          </CommandBox>
-        </Box>
-      )}
     </>
   );
 };
+
+function disabledStates(ec2InstanceExists: boolean, wantAutoDiscover: boolean) {
+  const disabled = wantAutoDiscover || ec2InstanceExists;
+
+  let disabledText = `This EC2 instance is already enrolled and is a part of this cluster`;
+  if (wantAutoDiscover) {
+    disabledText = 'All eligible EC2 instances will be enrolled automatically';
+  }
+
+  return { disabled, disabledText };
+}

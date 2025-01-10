@@ -1,18 +1,20 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package services
 
@@ -21,12 +23,10 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
-	"github.com/jonboulle/clockwork"
 
 	accesslistclient "github.com/gravitational/teleport/api/client/accesslist"
 	accesslistv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/accesslist/v1"
 	"github.com/gravitational/teleport/api/types/accesslist"
-	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
 )
 
@@ -44,16 +44,27 @@ type AccessListsGetter interface {
 	GetAccessList(context.Context, string) (*accesslist.AccessList, error)
 	// GetAccessListsToReview returns access lists that the user needs to review.
 	GetAccessListsToReview(context.Context) ([]*accesslist.AccessList, error)
+	// GetInheritedGrants returns grants inherited by access list accessListID from parent access lists.
+	GetInheritedGrants(context.Context, string) (*accesslist.Grants, error)
+}
+
+// AccessListsSuggestionsGetter defines an interface for reading access lists suggestions.
+type AccessListsSuggestionsGetter interface {
+	// GetSuggestedAccessLists returns a list of access lists that are suggested for a given request.
+	GetSuggestedAccessLists(ctx context.Context, accessRequestID string) ([]*accesslist.AccessList, error)
 }
 
 // AccessLists defines an interface for managing AccessLists.
 type AccessLists interface {
 	AccessListsGetter
+	AccessListsSuggestionsGetter
 	AccessListMembers
 	AccessListReviews
 
 	// UpsertAccessList creates or updates an access list resource.
 	UpsertAccessList(context.Context, *accesslist.AccessList) (*accesslist.AccessList, error)
+	// UpdateAccessList updates an access list resource.
+	UpdateAccessList(context.Context, *accesslist.AccessList) (*accesslist.AccessList, error)
 	// DeleteAccessList removes the specified access list resource.
 	DeleteAccessList(context.Context, string) error
 	// DeleteAllAccessLists removes all access lists.
@@ -77,9 +88,8 @@ func MarshalAccessList(accessList *accesslist.AccessList, opts ...MarshalOption)
 		return nil, trace.Wrap(err)
 	}
 
-	if !cfg.PreserveResourceID {
+	if !cfg.PreserveRevision {
 		copy := *accessList
-		copy.SetResourceID(0)
 		copy.SetRevision("")
 		accessList = &copy
 	}
@@ -102,9 +112,6 @@ func UnmarshalAccessList(data []byte, opts ...MarshalOption) (*accesslist.Access
 	if err := accessList.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if cfg.ID != 0 {
-		accessList.SetResourceID(cfg.ID)
-	}
 	if cfg.Revision != "" {
 		accessList.SetRevision(cfg.Revision)
 	}
@@ -114,12 +121,45 @@ func UnmarshalAccessList(data []byte, opts ...MarshalOption) (*accesslist.Access
 	return &accessList, nil
 }
 
+// ImplicitAccessListError indicates that an operation that only makes sense for
+// AccessLists with an explicit Member list has been attempted on an implicit-
+// membership AccessList
+type ImplicitAccessListError struct{}
+
+// Error implements the `error` interface for ImplicitAccessListError
+func (ImplicitAccessListError) Error() string {
+	return "requested AccessList does not have explicit member list"
+}
+
+// AccessListMemberGetter defines an interface that can retrieve access list members.
+type AccessListMemberGetter interface {
+	// GetAccessListMember returns the specified access list member resource.
+	// May return a DynamicAccessListError if the requested access list has an
+	// implicit member list and the underlying implementation does not have
+	// enough information to compute the dynamic member record.
+	GetAccessListMember(ctx context.Context, accessList string, memberName string) (*accesslist.AccessListMember, error)
+	// GetAccessList returns the specified access list resource.
+	GetAccessList(context.Context, string) (*accesslist.AccessList, error)
+	// GetAccessLists returns a list of all access lists.
+	GetAccessLists(context.Context) ([]*accesslist.AccessList, error)
+}
+
 // AccessListMembersGetter defines an interface for reading access list members.
 type AccessListMembersGetter interface {
+	AccessListMemberGetter
+
+	// CountAccessListMembers will count all access list members.
+	CountAccessListMembers(ctx context.Context, accessListName string) (membersCount uint32, listCount uint32, err error)
 	// ListAccessListMembers returns a paginated list of all access list members.
-	ListAccessListMembers(ctx context.Context, accessList string, pageSize int, pageToken string) (members []*accesslist.AccessListMember, nextToken string, err error)
-	// GetAccessListMember returns the specified access list member resource.
+	// May return a DynamicAccessListError if the requested access list has an
+	// implicit member list and the underlying implementation does not have
+	// enough information to compute the dynamic member list.
+	ListAccessListMembers(ctx context.Context, accessListName string, pageSize int, pageToken string) (members []*accesslist.AccessListMember, nextToken string, err error)
+	// ListAllAccessListMembers returns a paginated list of all access list members for all access lists.
+	ListAllAccessListMembers(ctx context.Context, pageSize int, pageToken string) (members []*accesslist.AccessListMember, nextToken string, err error)
 	GetAccessListMember(ctx context.Context, accessList string, memberName string) (*accesslist.AccessListMember, error)
+	// GetAccessListOwners returns a list of all owners in an Access List, including those inherited from nested Access Lists.
+	GetAccessListOwners(ctx context.Context, accessList string) ([]*accesslist.Owner, error)
 }
 
 // AccessListMembers defines an interface for managing AccessListMembers.
@@ -128,6 +168,8 @@ type AccessListMembers interface {
 
 	// UpsertAccessListMember creates or updates an access list member resource.
 	UpsertAccessListMember(ctx context.Context, member *accesslist.AccessListMember) (*accesslist.AccessListMember, error)
+	// UpdateAccessListMember conditionally updates an access list member resource.
+	UpdateAccessListMember(ctx context.Context, member *accesslist.AccessListMember) (*accesslist.AccessListMember, error)
 	// DeleteAccessListMember hard deletes the specified access list member resource.
 	DeleteAccessListMember(ctx context.Context, accessList string, memberName string) error
 	// DeleteAllAccessListMembersForAccessList hard deletes all access list members for an access list.
@@ -147,9 +189,8 @@ func MarshalAccessListMember(member *accesslist.AccessListMember, opts ...Marsha
 		return nil, trace.Wrap(err)
 	}
 
-	if !cfg.PreserveResourceID {
+	if !cfg.PreserveRevision {
 		copy := *member
-		copy.SetResourceID(0)
 		copy.SetRevision("")
 		member = &copy
 	}
@@ -172,9 +213,6 @@ func UnmarshalAccessListMember(data []byte, opts ...MarshalOption) (*accesslist.
 	if err := member.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if cfg.ID != 0 {
-		member.SetResourceID(cfg.ID)
-	}
 	if cfg.Revision != "" {
 		member.SetRevision(cfg.Revision)
 	}
@@ -184,127 +222,13 @@ func UnmarshalAccessListMember(data []byte, opts ...MarshalOption) (*accesslist.
 	return &member, nil
 }
 
-// IsAccessListOwner will return true if the user is an owner for the current list.
-func IsAccessListOwner(identity tlsca.Identity, accessList *accesslist.AccessList) error {
-	isOwner := false
-	for _, owner := range accessList.Spec.Owners {
-		if owner.Name == identity.Username {
-			isOwner = true
-			break
-		}
-	}
-
-	// An opaque access denied error.
-	accessDenied := trace.AccessDenied("access denied")
-
-	// User is not an owner, so we'll access denied.
-	if !isOwner {
-		return accessDenied
-	}
-
-	if !UserMeetsRequirements(identity, accessList.Spec.OwnershipRequires) {
-		return accessDenied
-	}
-
-	// We've gotten through all the checks, so the user is an owner.
-	return nil
-}
-
-// IsAccessListMember will return true if the user is a member for the current list.
-func IsAccessListMember(ctx context.Context, identity tlsca.Identity, clock clockwork.Clock, accessList *accesslist.AccessList, memberGetter AccessListMembersGetter) error {
-	username := identity.Username
-
-	member, err := memberGetter.GetAccessListMember(ctx, accessList.GetName(), username)
-	if trace.IsNotFound(err) {
-		// The member has not been found, so we know they're not a member of this list.
-		return trace.NotFound("user %s is not a member of the access list", username)
-	} else if err != nil {
-		// Some other error has occurred
-		return trace.Wrap(err)
-	}
-
-	expires := member.Spec.Expires
-	if expires.IsZero() {
-		return nil
-	}
-
-	if !clock.Now().Before(expires) {
-		return trace.AccessDenied("user %s's membership has expired in the access list", username)
-	}
-
-	if !UserMeetsRequirements(identity, accessList.Spec.MembershipRequires) {
-		return trace.AccessDenied("user %s is a member, but does not have the roles or traits required to be a member of this list", username)
-	}
-	return nil
-}
-
-// UserMeetsRequirements will return true if the user meets the requirements for the access list.
-func UserMeetsRequirements(identity tlsca.Identity, requires accesslist.Requires) bool {
-	// Assemble the user's roles for easy look up.
-	userRolesMap := map[string]struct{}{}
-	for _, role := range identity.Groups {
-		userRolesMap[role] = struct{}{}
-	}
-
-	// Check that the user meets the role requirements.
-	for _, role := range requires.Roles {
-		if _, ok := userRolesMap[role]; !ok {
-			return false
-		}
-	}
-
-	// Assemble traits for easy lookup.
-	userTraitsMap := map[string]map[string]struct{}{}
-	for k, values := range identity.Traits {
-		if _, ok := userTraitsMap[k]; !ok {
-			userTraitsMap[k] = map[string]struct{}{}
-		}
-
-		for _, v := range values {
-			userTraitsMap[k][v] = struct{}{}
-		}
-	}
-
-	// Check that user meets trait requirements.
-	for k, values := range requires.Traits {
-		if _, ok := userTraitsMap[k]; !ok {
-			return false
-		}
-
-		for _, v := range values {
-			if _, ok := userTraitsMap[k][v]; !ok {
-				return false
-			}
-		}
-	}
-
-	// The user meets all requirements.
-	return true
-}
-
-// SelectNextReviewDate will select the next review date for the access list.
-func SelectNextReviewDate(accessList *accesslist.AccessList) time.Time {
-	numMonths := int(accessList.Spec.Audit.Recurrence.Frequency)
-	dayOfMonth := int(accessList.Spec.Audit.Recurrence.DayOfMonth)
-
-	// If the last day of the month has been specified, use the 0 day of the
-	// next month, which will result in the last day of the target month.
-	if dayOfMonth == int(accesslist.LastDayOfMonth) {
-		numMonths += 1
-		dayOfMonth = 0
-	}
-
-	currentReviewDate := accessList.Spec.Audit.NextAuditDate
-	nextDate := time.Date(currentReviewDate.Year(), currentReviewDate.Month()+time.Month(numMonths), dayOfMonth,
-		0, 0, 0, 0, time.UTC)
-
-	return nextDate
-}
-
 // AccessListReviews defines an interface for managing Access List reviews.
 type AccessListReviews interface {
 	// ListAccessListReviews will list access list reviews for a particular access list.
 	ListAccessListReviews(ctx context.Context, accessList string, pageSize int, pageToken string) (reviews []*accesslist.Review, nextToken string, err error)
+
+	// ListAllAccessListReviews will list access list reviews for all access lists. Only to be used by the cache.
+	ListAllAccessListReviews(ctx context.Context, pageSize int, pageToken string) (reviews []*accesslist.Review, nextToken string, err error)
 
 	// CreateAccessListReview will create a new review for an access list.
 	CreateAccessListReview(ctx context.Context, review *accesslist.Review) (updatedReview *accesslist.Review, nextReviewDate time.Time, err error)
@@ -312,8 +236,8 @@ type AccessListReviews interface {
 	// DeleteAccessListReview will delete an access list review from the backend.
 	DeleteAccessListReview(ctx context.Context, accessListName, reviewName string) error
 
-	// DeleteAllAccessListReviews will delete all access list reviews from an access list.
-	DeleteAllAccessListReviews(ctx context.Context, accessListName string) error
+	// DeleteAllAccessListReviews will delete all access list reviews from all access lists.
+	DeleteAllAccessListReviews(ctx context.Context) error
 }
 
 // MarshalAccessListReview marshals the access list review resource to JSON.
@@ -327,9 +251,8 @@ func MarshalAccessListReview(review *accesslist.Review, opts ...MarshalOption) (
 		return nil, trace.Wrap(err)
 	}
 
-	if !cfg.PreserveResourceID {
+	if !cfg.PreserveRevision {
 		copy := *review
-		copy.SetResourceID(0)
 		copy.SetRevision("")
 		review = &copy
 	}
@@ -351,9 +274,6 @@ func UnmarshalAccessListReview(data []byte, opts ...MarshalOption) (*accesslist.
 	}
 	if err := review.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
-	}
-	if cfg.ID != 0 {
-		review.SetResourceID(cfg.ID)
 	}
 	if cfg.Revision != "" {
 		review.SetRevision(cfg.Revision)

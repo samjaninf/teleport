@@ -17,13 +17,19 @@ limitations under the License.
 package discoveryconfig
 
 import (
+	"time"
+
 	"github.com/gravitational/trace"
 
+	discoveryconfigv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/discoveryconfig/v1"
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/api/types/compare"
 	"github.com/gravitational/teleport/api/types/header"
 	"github.com/gravitational/teleport/api/types/header/convert/legacy"
 	"github.com/gravitational/teleport/api/utils"
 )
+
+var _ compare.IsEqual[*DiscoveryConfig] = (*DiscoveryConfig)(nil)
 
 // DiscoveryConfig describes extra discovery matchers that are added to DiscoveryServices that share the same Discovery Group.
 type DiscoveryConfig struct {
@@ -32,6 +38,9 @@ type DiscoveryConfig struct {
 
 	// Spec is the specification for the discovery config.
 	Spec Spec `json:"spec" yaml:"spec"`
+
+	// Status is the status for the discovery config.
+	Status Status `json:"status" yaml:"status"`
 }
 
 // Spec is the specification for a discovery config.
@@ -48,6 +57,34 @@ type Spec struct {
 	GCP []types.GCPMatcher `json:"gcp,omitempty" yaml:"gcp"`
 	// Kube is a list of matchers for the supported resources in Kubernetes.
 	Kube []types.KubernetesMatcher `json:"kube,omitempty" yaml:"kube"`
+	// AccessGraph is the configuration for the Access Graph Cloud sync.
+	AccessGraph *types.AccessGraphSync `json:"access_graph,omitempty" yaml:"access_graph"`
+}
+
+// Equal checks if the discovery config is equal to another.
+// Deprecated: use IsEqual.
+func (m *DiscoveryConfig) Equal(n *DiscoveryConfig) bool {
+	return m.IsEqual(n)
+}
+
+// IsEqual checks if the discovery config is equal to another.
+func (m *DiscoveryConfig) IsEqual(n *DiscoveryConfig) bool {
+	return deriveTeleportEqualDiscoveryConfig(m, n)
+}
+
+// Status holds dynamic information about the discovery configuration
+// running status such as errors, state and count of the resources.
+type Status struct {
+	// State is the current state of the discovery config.
+	State string `json:"state" yaml:"state"`
+	// ErrorMessage holds the error message when state is DISCOVERY_CONFIG_STATE_ERROR.
+	ErrorMessage *string `json:"error_message,omitempty" yaml:"error_message,omitempty"`
+	// DiscoveredResources holds the count of the discovered resources in the previous iteration.
+	DiscoveredResources uint64 `json:"discovered_resources" yaml:"discovered_resources"`
+	// LastSyncTime is the timestamp when the Discovery Config was last sync.
+	LastSyncTime time.Time `json:"last_sync_time,omitempty" yaml:"last_sync_time,omitempty"`
+	// IntegrationDiscoveredResources maps an integration to a summary of resources that were found using that integration.
+	IntegrationDiscoveredResources map[string]*discoveryconfigv1.IntegrationDiscoveredSummary `json:"integration_discovered_resources,omitempty" yaml:"integration_discovered_resources,omitempty"`
 }
 
 // NewDiscoveryConfig will create a new discovery config.
@@ -80,8 +117,8 @@ func (a *DiscoveryConfig) CheckAndSetDefaults() error {
 	if a.Spec.AWS == nil {
 		a.Spec.AWS = make([]types.AWSMatcher, 0)
 	}
-	for _, m := range a.Spec.AWS {
-		if err := m.CheckAndSetDefaults(); err != nil {
+	for i := range a.Spec.AWS {
+		if err := a.Spec.AWS[i].CheckAndSetDefaults(); err != nil {
 			return trace.Wrap(err)
 		}
 	}
@@ -89,8 +126,8 @@ func (a *DiscoveryConfig) CheckAndSetDefaults() error {
 	if a.Spec.Azure == nil {
 		a.Spec.Azure = make([]types.AzureMatcher, 0)
 	}
-	for _, m := range a.Spec.Azure {
-		if err := m.CheckAndSetDefaults(); err != nil {
+	for i := range a.Spec.Azure {
+		if err := a.Spec.Azure[i].CheckAndSetDefaults(); err != nil {
 			return trace.Wrap(err)
 		}
 	}
@@ -98,8 +135,8 @@ func (a *DiscoveryConfig) CheckAndSetDefaults() error {
 	if a.Spec.GCP == nil {
 		a.Spec.GCP = make([]types.GCPMatcher, 0)
 	}
-	for _, m := range a.Spec.GCP {
-		if err := m.CheckAndSetDefaults(); err != nil {
+	for i := range a.Spec.GCP {
+		if err := a.Spec.GCP[i].CheckAndSetDefaults(); err != nil {
 			return trace.Wrap(err)
 		}
 	}
@@ -107,8 +144,14 @@ func (a *DiscoveryConfig) CheckAndSetDefaults() error {
 	if a.Spec.Kube == nil {
 		a.Spec.Kube = make([]types.KubernetesMatcher, 0)
 	}
-	for _, m := range a.Spec.Kube {
-		if err := m.CheckAndSetDefaults(); err != nil {
+	for i := range a.Spec.Kube {
+		if err := a.Spec.Kube[i].CheckAndSetDefaults(); err != nil {
+			return trace.Wrap(err)
+		}
+	}
+
+	if a.Spec.AccessGraph != nil {
+		if err := a.Spec.AccessGraph.CheckAndSetDefaults(); err != nil {
 			return trace.Wrap(err)
 		}
 	}

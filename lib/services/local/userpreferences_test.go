@@ -1,24 +1,25 @@
 /*
- * Copyright 2023 Gravitational, Inc.
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package local_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -28,7 +29,6 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 
 	userpreferencesv1 "github.com/gravitational/teleport/api/gen/proto/go/userpreferences/v1"
-	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/backend/memory"
 	"github.com/gravitational/teleport/lib/services/local"
 )
@@ -99,11 +99,33 @@ func TestUserPreferencesCRUD(t *testing.T) {
 				},
 			},
 			expected: &userpreferencesv1.UserPreferences{
-				Assist:                     defaultPref.Assist,
 				Onboard:                    defaultPref.Onboard,
 				Theme:                      userpreferencesv1.Theme_THEME_DARK,
 				UnifiedResourcePreferences: defaultPref.UnifiedResourcePreferences,
 				ClusterPreferences:         defaultPref.ClusterPreferences,
+				SideNavDrawerMode:          defaultPref.SideNavDrawerMode,
+			},
+		},
+		{
+			name: "update the availability view only",
+			req: &userpreferencesv1.UpsertUserPreferencesRequest{
+				Preferences: &userpreferencesv1.UserPreferences{
+					UnifiedResourcePreferences: &userpreferencesv1.UnifiedResourcePreferences{
+						AvailableResourceMode: userpreferencesv1.AvailableResourceMode_AVAILABLE_RESOURCE_MODE_ACCESSIBLE,
+					},
+				},
+			},
+			expected: &userpreferencesv1.UserPreferences{
+				Onboard: defaultPref.Onboard,
+				Theme:   defaultPref.Theme,
+				UnifiedResourcePreferences: &userpreferencesv1.UnifiedResourcePreferences{
+					DefaultTab:            userpreferencesv1.DefaultTab_DEFAULT_TAB_ALL,
+					ViewMode:              userpreferencesv1.ViewMode_VIEW_MODE_CARD,
+					LabelsViewMode:        userpreferencesv1.LabelsViewMode_LABELS_VIEW_MODE_COLLAPSED,
+					AvailableResourceMode: userpreferencesv1.AvailableResourceMode_AVAILABLE_RESOURCE_MODE_ACCESSIBLE,
+				},
+				ClusterPreferences: defaultPref.ClusterPreferences,
+				SideNavDrawerMode:  defaultPref.SideNavDrawerMode,
 			},
 		},
 		{
@@ -116,57 +138,16 @@ func TestUserPreferencesCRUD(t *testing.T) {
 				},
 			},
 			expected: &userpreferencesv1.UserPreferences{
-				Assist:  defaultPref.Assist,
 				Onboard: defaultPref.Onboard,
 				Theme:   defaultPref.Theme,
 				UnifiedResourcePreferences: &userpreferencesv1.UnifiedResourcePreferences{
-					DefaultTab: userpreferencesv1.DefaultTab_DEFAULT_TAB_PINNED,
+					DefaultTab:            userpreferencesv1.DefaultTab_DEFAULT_TAB_PINNED,
+					ViewMode:              userpreferencesv1.ViewMode_VIEW_MODE_CARD,
+					LabelsViewMode:        userpreferencesv1.LabelsViewMode_LABELS_VIEW_MODE_COLLAPSED,
+					AvailableResourceMode: userpreferencesv1.AvailableResourceMode_AVAILABLE_RESOURCE_MODE_NONE,
 				},
 				ClusterPreferences: defaultPref.ClusterPreferences,
-			},
-		},
-		{
-			name: "update the assist preferred logins only",
-			req: &userpreferencesv1.UpsertUserPreferencesRequest{
-				Preferences: &userpreferencesv1.UserPreferences{
-					Assist: &userpreferencesv1.AssistUserPreferences{
-						PreferredLogins: []string{"foo", "bar"},
-					},
-					Onboard: &userpreferencesv1.OnboardUserPreferences{
-						PreferredResources: []userpreferencesv1.Resource{},
-						MarketingParams:    &userpreferencesv1.MarketingParams{},
-					},
-				},
-			},
-			expected: &userpreferencesv1.UserPreferences{
-				Theme:                      defaultPref.Theme,
-				UnifiedResourcePreferences: defaultPref.UnifiedResourcePreferences,
-				Onboard:                    defaultPref.Onboard,
-				Assist: &userpreferencesv1.AssistUserPreferences{
-					PreferredLogins: []string{"foo", "bar"},
-					ViewMode:        defaultPref.Assist.ViewMode,
-				},
-				ClusterPreferences: defaultPref.ClusterPreferences,
-			},
-		},
-		{
-			name: "update the assist view mode only",
-			req: &userpreferencesv1.UpsertUserPreferencesRequest{
-				Preferences: &userpreferencesv1.UserPreferences{
-					Assist: &userpreferencesv1.AssistUserPreferences{
-						ViewMode: userpreferencesv1.AssistViewMode_ASSIST_VIEW_MODE_POPUP_EXPANDED_SIDEBAR_VISIBLE,
-					},
-				},
-			},
-			expected: &userpreferencesv1.UserPreferences{
-				Theme:                      defaultPref.Theme,
-				UnifiedResourcePreferences: defaultPref.UnifiedResourcePreferences,
-				Onboard:                    defaultPref.Onboard,
-				Assist: &userpreferencesv1.AssistUserPreferences{
-					PreferredLogins: defaultPref.Assist.PreferredLogins,
-					ViewMode:        userpreferencesv1.AssistViewMode_ASSIST_VIEW_MODE_POPUP_EXPANDED_SIDEBAR_VISIBLE,
-				},
-				ClusterPreferences: defaultPref.ClusterPreferences,
+				SideNavDrawerMode:  defaultPref.SideNavDrawerMode,
 			},
 		},
 		{
@@ -185,9 +166,9 @@ func TestUserPreferencesCRUD(t *testing.T) {
 				},
 			},
 			expected: &userpreferencesv1.UserPreferences{
-				Assist:                     defaultPref.Assist,
 				Theme:                      defaultPref.Theme,
 				UnifiedResourcePreferences: defaultPref.UnifiedResourcePreferences,
+				SideNavDrawerMode:          defaultPref.SideNavDrawerMode,
 				Onboard: &userpreferencesv1.OnboardUserPreferences{
 					PreferredResources: []userpreferencesv1.Resource{userpreferencesv1.Resource_RESOURCE_DATABASES},
 					MarketingParams: &userpreferencesv1.MarketingParams{
@@ -212,10 +193,10 @@ func TestUserPreferencesCRUD(t *testing.T) {
 				},
 			},
 			expected: &userpreferencesv1.UserPreferences{
-				Assist:                     defaultPref.Assist,
 				Theme:                      defaultPref.Theme,
 				UnifiedResourcePreferences: defaultPref.UnifiedResourcePreferences,
 				Onboard:                    defaultPref.Onboard,
+				SideNavDrawerMode:          defaultPref.SideNavDrawerMode,
 				ClusterPreferences: &userpreferencesv1.ClusterUserPreferences{
 					PinnedResources: &userpreferencesv1.PinnedResourcesUserPreferences{
 						ResourceIds: []string{"node1", "node2"},
@@ -224,17 +205,32 @@ func TestUserPreferencesCRUD(t *testing.T) {
 			},
 		},
 		{
+			name: "update sidenav preference only",
+			req: &userpreferencesv1.UpsertUserPreferencesRequest{
+				Preferences: &userpreferencesv1.UserPreferences{
+					SideNavDrawerMode: userpreferencesv1.SideNavDrawerMode_SIDE_NAV_DRAWER_MODE_STICKY,
+				},
+			},
+			expected: &userpreferencesv1.UserPreferences{
+				Theme:                      defaultPref.Theme,
+				UnifiedResourcePreferences: defaultPref.UnifiedResourcePreferences,
+				Onboard:                    defaultPref.Onboard,
+				ClusterPreferences:         defaultPref.ClusterPreferences,
+				SideNavDrawerMode:          userpreferencesv1.SideNavDrawerMode_SIDE_NAV_DRAWER_MODE_STICKY,
+			},
+		},
+		{
 			name: "update all the settings at once",
 			req: &userpreferencesv1.UpsertUserPreferencesRequest{
 				Preferences: &userpreferencesv1.UserPreferences{
 					Theme: userpreferencesv1.Theme_THEME_LIGHT,
 					UnifiedResourcePreferences: &userpreferencesv1.UnifiedResourcePreferences{
-						DefaultTab: userpreferencesv1.DefaultTab_DEFAULT_TAB_PINNED,
+						DefaultTab:            userpreferencesv1.DefaultTab_DEFAULT_TAB_PINNED,
+						ViewMode:              userpreferencesv1.ViewMode_VIEW_MODE_LIST,
+						LabelsViewMode:        userpreferencesv1.LabelsViewMode_LABELS_VIEW_MODE_COLLAPSED,
+						AvailableResourceMode: userpreferencesv1.AvailableResourceMode_AVAILABLE_RESOURCE_MODE_NONE,
 					},
-					Assist: &userpreferencesv1.AssistUserPreferences{
-						PreferredLogins: []string{"baz"},
-						ViewMode:        userpreferencesv1.AssistViewMode_ASSIST_VIEW_MODE_POPUP,
-					},
+					SideNavDrawerMode: userpreferencesv1.SideNavDrawerMode_SIDE_NAV_DRAWER_MODE_STICKY,
 					Onboard: &userpreferencesv1.OnboardUserPreferences{
 						PreferredResources: []userpreferencesv1.Resource{userpreferencesv1.Resource_RESOURCE_KUBERNETES},
 						MarketingParams: &userpreferencesv1.MarketingParams{
@@ -254,11 +250,10 @@ func TestUserPreferencesCRUD(t *testing.T) {
 			expected: &userpreferencesv1.UserPreferences{
 				Theme: userpreferencesv1.Theme_THEME_LIGHT,
 				UnifiedResourcePreferences: &userpreferencesv1.UnifiedResourcePreferences{
-					DefaultTab: userpreferencesv1.DefaultTab_DEFAULT_TAB_PINNED,
-				},
-				Assist: &userpreferencesv1.AssistUserPreferences{
-					PreferredLogins: []string{"baz"},
-					ViewMode:        userpreferencesv1.AssistViewMode_ASSIST_VIEW_MODE_POPUP,
+					DefaultTab:            userpreferencesv1.DefaultTab_DEFAULT_TAB_PINNED,
+					ViewMode:              userpreferencesv1.ViewMode_VIEW_MODE_LIST,
+					LabelsViewMode:        userpreferencesv1.LabelsViewMode_LABELS_VIEW_MODE_COLLAPSED,
+					AvailableResourceMode: userpreferencesv1.AvailableResourceMode_AVAILABLE_RESOURCE_MODE_NONE,
 				},
 				Onboard: &userpreferencesv1.OnboardUserPreferences{
 					PreferredResources: []userpreferencesv1.Resource{userpreferencesv1.Resource_RESOURCE_KUBERNETES},
@@ -274,6 +269,7 @@ func TestUserPreferencesCRUD(t *testing.T) {
 						ResourceIds: []string{"node1", "node2"},
 					},
 				},
+				SideNavDrawerMode: userpreferencesv1.SideNavDrawerMode_SIDE_NAV_DRAWER_MODE_STICKY,
 			},
 		},
 	}
@@ -301,38 +297,4 @@ func TestUserPreferencesCRUD(t *testing.T) {
 			require.Empty(t, cmp.Diff(test.expected, res, protocmp.Transform()))
 		})
 	}
-}
-
-func TestLayoutUpdate(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	identity := newUserPreferencesService(t)
-
-	outdatedPrefs := &userpreferencesv1.UserPreferences{
-		Assist: &userpreferencesv1.AssistUserPreferences{
-			PreferredLogins: []string{"foo", "bar"},
-		},
-	}
-	val, err := json.Marshal(outdatedPrefs)
-	require.NoError(t, err)
-
-	// Insert the outdated preferences directly into the backend
-	// to simulate a previous version of the preferences.
-	_, err = identity.Put(ctx, backend.Item{
-		Key:   backend.Key("user_preferences", "test"),
-		Value: val,
-	})
-	require.NoError(t, err)
-
-	// Get the preferences and ensure that the layout is updated.
-	prefs, err := identity.GetUserPreferences(ctx, "test")
-	require.NoError(t, err)
-	// The layout should be updated to the latest version (values should not be nil).
-	require.NotNil(t, prefs.Onboard)
-	// Non-existing values should be set to the default value.
-	require.Equal(t, userpreferencesv1.AssistViewMode_ASSIST_VIEW_MODE_DOCKED, prefs.Assist.ViewMode)
-	require.Equal(t, userpreferencesv1.Theme_THEME_LIGHT, prefs.Theme)
-	// Existing values should be preserved.
-	require.Equal(t, []string{"foo", "bar"}, prefs.Assist.PreferredLogins)
 }

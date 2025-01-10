@@ -1,50 +1,68 @@
 /**
- * Copyright 2023 Gravitational, Inc
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-import { render, screen, userEvent } from 'design/utils/testing';
-import { Router } from 'react-router';
+import { act } from '@testing-library/react';
+import { subMinutes, subSeconds } from 'date-fns';
 import { createMemoryHistory } from 'history';
+import { mockIntersectionObserver } from 'jsdom-testing-mocks';
+import { Router } from 'react-router';
 
-import { LayoutContextProvider } from 'teleport/Main/LayoutContext';
-import TeleportContextProvider from 'teleport/TeleportContextProvider';
-import { FeaturesContextProvider } from 'teleport/FeaturesContext';
+import { render, screen, userEvent } from 'design/utils/testing';
+
+import { clusters } from 'teleport/Clusters/fixtures';
 import { getOSSFeatures } from 'teleport/features';
+import { FeaturesContextProvider } from 'teleport/FeaturesContext';
+import { LayoutContextProvider } from 'teleport/Main/LayoutContext';
+import { NotificationSubKind } from 'teleport/services/notifications';
+import { makeUserContext } from 'teleport/services/user';
+import session from 'teleport/services/websession';
 import TeleportContext, {
   disabledFeatureFlags,
 } from 'teleport/teleportContext';
-import { makeUserContext } from 'teleport/services/user';
-import { mockUserContextProviderWith } from 'teleport/User/testHelpers/mockUserContextWith';
+import TeleportContextProvider from 'teleport/TeleportContextProvider';
 import { makeTestUserContext } from 'teleport/User/testHelpers/makeTestUserContext';
-import { NotificationKind } from 'teleport/stores/storeNotifications';
-
-import { clusters } from 'teleport/Clusters/fixtures';
+import { mockUserContextProviderWith } from 'teleport/User/testHelpers/mockUserContextWith';
 
 import { TopBar } from './TopBar';
 
 let ctx: TeleportContext;
 
+const mio = mockIntersectionObserver();
+
+beforeEach(() => {
+  class ResizeObserver {
+    observe() {}
+
+    unobserve() {}
+
+    disconnect() {}
+  }
+
+  global.ResizeObserver = ResizeObserver;
+  jest.resetAllMocks();
+});
+beforeEach(() => jest.resetAllMocks());
+
 function setup(): void {
   ctx = new TeleportContext();
-  jest
-    .spyOn(ctx, 'getFeatureFlags')
-    .mockReturnValue({ ...disabledFeatureFlags, assist: true });
+  jest.spyOn(ctx, 'getFeatureFlags').mockReturnValue(disabledFeatureFlags);
   ctx.clusterService.fetchClusters = () => Promise.resolve(clusters);
 
-  ctx.assistEnabled = true;
   ctx.storeUser.state = makeUserContext({
     userName: 'admin',
     cluster: {
@@ -52,82 +70,121 @@ function setup(): void {
       lastConnected: Date.now(),
     },
   });
+
   mockUserContextProviderWith(makeTestUserContext());
 }
-
-test('does not show assist popup if hidePopup is true', async () => {
-  setup();
-
-  render(getTopBar({ hidePopup: true }));
-  await screen.findByTestId('cluster-selector');
-
-  expect(screen.queryByTestId('assistPopup')).not.toBeInTheDocument();
-});
-
-test('shows assist popup if hidePopup is absent', async () => {
-  setup();
-
-  render(getTopBar({}));
-  await screen.findByTestId('cluster-selector');
-
-  expect(screen.getByTestId('assistPopup')).toBeInTheDocument();
-});
-
-test('shows assist popup if hidePopup is false', async () => {
-  setup();
-
-  render(getTopBar({ hidePopup: false }));
-  await screen.findByTestId('cluster-selector');
-
-  expect(screen.getByTestId('assistPopup')).toBeInTheDocument();
-});
 
 test('notification bell without notification', async () => {
   setup();
 
-  render(getTopBar({}));
-  await screen.findByTestId('cluster-selector');
+  jest.spyOn(ctx.notificationService, 'fetchNotifications').mockResolvedValue({
+    nextKey: '',
+    userLastSeenNotification: subMinutes(Date.now(), 12), // 12 minutes ago
+    notifications: [],
+  });
 
-  expect(screen.getByTestId('tb-note')).toBeInTheDocument();
-  expect(screen.queryByTestId('tb-note-attention')).not.toBeInTheDocument();
+  render(getTopBar());
+  await screen.findByTestId('tb-notifications');
+
+  expect(screen.getByTestId('tb-notifications')).toBeInTheDocument();
+  expect(
+    screen.queryByTestId('tb-notifications-badge')
+  ).not.toBeInTheDocument();
 });
 
 test('notification bell with notification', async () => {
   setup();
-  ctx.storeNotifications.state = {
+
+  jest.spyOn(ctx.notificationService, 'fetchNotifications').mockResolvedValue({
+    nextKey: '',
+    userLastSeenNotification: subMinutes(Date.now(), 12), // 12 minutes ago
     notifications: [
       {
-        item: {
-          kind: NotificationKind.AccessList,
-          resourceName: 'banana',
-          route: '',
-        },
-        id: 'abc',
-        date: new Date(),
+        id: '1',
+        title: 'Example notification 1',
+        subKind: NotificationSubKind.UserCreatedInformational,
+        createdDate: subSeconds(Date.now(), 15), // 15 seconds ago
+        clicked: false,
+        labels: [
+          {
+            name: 'text-content',
+            value: 'This is the text content of the notification.',
+          },
+        ],
       },
     ],
-  };
+  });
 
-  render(getTopBar({}));
-  await screen.findByTestId('cluster-selector');
+  jest
+    .spyOn(ctx.notificationService, 'upsertLastSeenNotificationTime')
+    .mockResolvedValue({
+      time: new Date(),
+    });
 
-  expect(screen.getByTestId('tb-note')).toBeInTheDocument();
-  expect(screen.getByTestId('tb-note-attention')).toBeInTheDocument();
+  render(getTopBar());
+  await screen.findByTestId('tb-notifications-badge');
+
+  expect(screen.getByTestId('tb-notifications')).toBeInTheDocument();
+  expect(screen.getByTestId('tb-notifications-badge')).toHaveTextContent('1');
 
   // Test clicking and rendering of dropdown.
-  expect(screen.getByTestId('tb-note-dropdown')).not.toBeVisible();
+  expect(screen.getByTestId('tb-notifications-dropdown')).not.toBeVisible();
 
-  await userEvent.click(screen.getByTestId('tb-note-button'));
-  expect(screen.getByTestId('tb-note-dropdown')).toBeVisible();
+  act(mio.enterAll);
+
+  await userEvent.click(screen.getByTestId('tb-notifications-button'));
+  expect(screen.getByTestId('tb-notifications-dropdown')).toBeVisible();
 });
 
-const getTopBar = ({ hidePopup = null }: { hidePopup?: boolean }) => {
+test('warning icon will show if session requires device trust and is not authorized', async () => {
+  setup();
+  jest.spyOn(session, 'getDeviceTrustRequired').mockImplementation(() => true);
+
+  render(getTopBar());
+
+  // the icon will show in the topbar and the usermenunav dropdown
+  expect(screen.getAllByTestId('device-trust-required-icon')).toHaveLength(2);
+});
+
+test('authorized icon will show if session is authorized', async () => {
+  setup();
+  jest.spyOn(session, 'getDeviceTrustRequired').mockImplementation(() => true);
+  jest.spyOn(session, 'getIsDeviceTrusted').mockImplementation(() => true);
+
+  render(getTopBar());
+
+  // the icon will show in the topbar and the usermenunav dropdown
+  expect(screen.getAllByTestId('device-trusted-icon')).toHaveLength(2);
+});
+
+test('authorized icon will show regardless of device requirements', async () => {
+  setup();
+  jest.spyOn(session, 'getDeviceTrustRequired').mockImplementation(() => false);
+  jest.spyOn(session, 'getIsDeviceTrusted').mockImplementation(() => true);
+
+  render(getTopBar());
+
+  // the icon will show in the topbar and the usermenunav dropdown
+  expect(screen.getAllByTestId('device-trusted-icon')).toHaveLength(2);
+});
+
+test('icon will not show if device trust is not required', async () => {
+  setup();
+  jest.spyOn(session, 'getDeviceTrustRequired').mockImplementation(() => false);
+
+  render(getTopBar());
+
+  // no icons will be present
+  expect(screen.queryByTestId('device-trust-icon')).not.toBeInTheDocument();
+});
+
+const getTopBar = () => {
   return (
     <Router history={createMemoryHistory()}>
       <LayoutContextProvider>
         <TeleportContextProvider ctx={ctx}>
           <FeaturesContextProvider value={getOSSFeatures()}>
-            <TopBar hidePopup={hidePopup} />
+            <TopBar />
           </FeaturesContextProvider>
         </TeleportContextProvider>
       </LayoutContextProvider>
