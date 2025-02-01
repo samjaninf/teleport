@@ -1,22 +1,25 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package services
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -27,6 +30,7 @@ import (
 	"github.com/gravitational/teleport/api/constants"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
+	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/modules"
 )
 
@@ -132,9 +136,12 @@ func TestAddRoleDefaults(t *testing.T) {
 				},
 				Spec: types.RoleSpecV6{
 					Allow: types.RoleConditions{
-						DatabaseServiceLabels: defaultAllowLabels()[teleport.PresetAccessRoleName].DatabaseServiceLabels,
-						DatabaseRoles:         defaultAllowLabels()[teleport.PresetAccessRoleName].DatabaseRoles,
+						DatabaseServiceLabels: defaultAllowLabels(false)[teleport.PresetAccessRoleName].DatabaseServiceLabels,
+						DatabaseRoles:         defaultAllowLabels(false)[teleport.PresetAccessRoleName].DatabaseRoles,
 						Rules:                 NewPresetAccessRole().GetRules(types.Allow),
+						GitHubPermissions: []types.GitHubPermission{{
+							Organizations: defaultGitHubOrgs()[teleport.PresetAccessRoleName],
+						}},
 					},
 				},
 			},
@@ -164,9 +171,12 @@ func TestAddRoleDefaults(t *testing.T) {
 				},
 				Spec: types.RoleSpecV6{
 					Allow: types.RoleConditions{
-						DatabaseServiceLabels: defaultAllowLabels()[teleport.PresetAccessRoleName].DatabaseServiceLabels,
-						DatabaseRoles:         defaultAllowLabels()[teleport.PresetAccessRoleName].DatabaseRoles,
+						DatabaseServiceLabels: defaultAllowLabels(false)[teleport.PresetAccessRoleName].DatabaseServiceLabels,
+						DatabaseRoles:         defaultAllowLabels(false)[teleport.PresetAccessRoleName].DatabaseRoles,
 						Rules:                 defaultAllowRules()[teleport.PresetAccessRoleName],
+						GitHubPermissions: []types.GitHubPermission{{
+							Organizations: defaultGitHubOrgs()[teleport.PresetAccessRoleName],
+						}},
 					},
 				},
 			},
@@ -179,9 +189,12 @@ func TestAddRoleDefaults(t *testing.T) {
 				},
 				Spec: types.RoleSpecV6{
 					Allow: types.RoleConditions{
-						DatabaseServiceLabels: defaultAllowLabels()[teleport.PresetAccessRoleName].DatabaseServiceLabels,
-						DatabaseRoles:         defaultAllowLabels()[teleport.PresetAccessRoleName].DatabaseRoles,
+						DatabaseServiceLabels: defaultAllowLabels(false)[teleport.PresetAccessRoleName].DatabaseServiceLabels,
+						DatabaseRoles:         defaultAllowLabels(false)[teleport.PresetAccessRoleName].DatabaseRoles,
 						Rules:                 defaultAllowRules()[teleport.PresetAccessRoleName],
+						GitHubPermissions: []types.GitHubPermission{{
+							Organizations: defaultGitHubOrgs()[teleport.PresetAccessRoleName],
+						}},
 					},
 				},
 			},
@@ -195,9 +208,12 @@ func TestAddRoleDefaults(t *testing.T) {
 				},
 				Spec: types.RoleSpecV6{
 					Allow: types.RoleConditions{
-						DatabaseServiceLabels: defaultAllowLabels()[teleport.PresetAccessRoleName].DatabaseServiceLabels,
-						DatabaseRoles:         defaultAllowLabels()[teleport.PresetAccessRoleName].DatabaseRoles,
+						DatabaseServiceLabels: defaultAllowLabels(false)[teleport.PresetAccessRoleName].DatabaseServiceLabels,
+						DatabaseRoles:         defaultAllowLabels(false)[teleport.PresetAccessRoleName].DatabaseRoles,
 						Rules:                 defaultAllowRules()[teleport.PresetAccessRoleName],
+						GitHubPermissions: []types.GitHubPermission{{
+							Organizations: defaultGitHubOrgs()[teleport.PresetAccessRoleName],
+						}},
 					},
 				},
 			},
@@ -347,13 +363,41 @@ func TestAddRoleDefaults(t *testing.T) {
 				Spec: types.RoleSpecV6{
 					Allow: types.RoleConditions{
 						ReviewRequests: &types.AccessReviewConditions{
-							Roles: []string{"some-role"},
+							Roles:          []string{"some-role"},
+							PreviewAsRoles: []string{"preview-role"},
 						},
 					},
 				},
 			},
-			enterprise:  true,
-			expectedErr: noChange,
+			enterprise:     true,
+			expectedErr:    require.NoError,
+			reviewNotEmpty: true,
+			expected: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.PresetReviewerRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.PresetResource,
+					},
+				},
+				Spec: types.RoleSpecV6{
+					Allow: types.RoleConditions{
+						ReviewRequests: &types.AccessReviewConditions{
+							Roles: []string{
+								teleport.PresetAccessRoleName,
+								teleport.SystemIdentityCenterAccessRoleName,
+								teleport.PresetGroupAccessRoleName,
+								"some-role",
+							},
+							PreviewAsRoles: []string{
+								teleport.PresetAccessRoleName,
+								teleport.SystemIdentityCenterAccessRoleName,
+								teleport.PresetGroupAccessRoleName,
+								"preview-role",
+							},
+						},
+					},
+				},
+			},
 		},
 		{
 			name: "requester (not enterprise)",
@@ -418,13 +462,296 @@ func TestAddRoleDefaults(t *testing.T) {
 				Spec: types.RoleSpecV6{
 					Allow: types.RoleConditions{
 						Request: &types.AccessRequestConditions{
+							Roles:         []string{"some-role"},
+							SearchAsRoles: []string{"search-as-role"},
+						},
+					},
+				},
+			},
+			enterprise:             true,
+			expectedErr:            require.NoError,
+			accessRequestsNotEmpty: true,
+			expected: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.PresetRequesterRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.PresetResource,
+					},
+				},
+				Spec: types.RoleSpecV6{
+					Allow: types.RoleConditions{
+						Request: &types.AccessRequestConditions{
+							Roles: []string{"some-role"},
+							SearchAsRoles: []string{
+								teleport.PresetAccessRoleName,
+								teleport.SystemIdentityCenterAccessRoleName,
+								teleport.PresetGroupAccessRoleName,
+								"search-as-role",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "okta resources (not enterprise)",
+			role: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaAccessRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.SystemResource,
+					},
+				},
+			},
+			expectedErr: noChange,
+			expected:    nil,
+		},
+		{
+			name: "okta resources (enterprise)",
+			role: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaAccessRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.SystemResource,
+					},
+				},
+			},
+			enterprise:  true,
+			expectedErr: require.NoError,
+			expected: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaAccessRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.SystemResource,
+					},
+				},
+				Spec: types.RoleSpecV6{
+					Allow: types.RoleConditions{
+						AppLabels: types.Labels{
+							types.OriginLabel: []string{types.OriginOkta},
+						},
+						GroupLabels: types.Labels{
+							types.OriginLabel: []string{types.OriginOkta},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "okta resources (enterprise, created by user)",
+			role: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaAccessRoleName,
+				},
+			},
+			enterprise:  true,
+			expectedErr: notModifying,
+			expected:    nil,
+		},
+		{
+			name: "okta requester (not enterprise)",
+			role: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaRequesterRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.SystemResource,
+						types.OriginLabel:                  types.OriginOkta,
+					},
+				},
+			},
+			expectedErr: noChange,
+			expected:    nil,
+		},
+		{
+			name: "okta requester (enterprise)",
+			role: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaRequesterRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.SystemResource,
+						types.OriginLabel:                  types.OriginOkta,
+					},
+				},
+			},
+			enterprise:             true,
+			expectedErr:            require.NoError,
+			accessRequestsNotEmpty: true,
+			expected: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaRequesterRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.SystemResource,
+						types.OriginLabel:                  types.OriginOkta,
+					},
+				},
+				Spec: types.RoleSpecV6{
+					Allow: types.RoleConditions{
+						Request: defaultAllowAccessRequestConditions(true)[teleport.SystemOktaRequesterRoleName],
+					},
+				},
+			},
+		},
+		{
+			name: "okta requester (enterprise, created by user)",
+			role: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaRequesterRoleName,
+				},
+			},
+			enterprise:  true,
+			expectedErr: notModifying,
+			expected:    nil,
+		},
+		{
+			name: "okta requester (enterprise, existing requests)",
+			role: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaRequesterRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.SystemResource,
+						types.OriginLabel:                  types.OriginOkta,
+					},
+				},
+				Spec: types.RoleSpecV6{
+					Allow: types.RoleConditions{
+						Request: &types.AccessRequestConditions{
 							Roles: []string{"some-role"},
 						},
 					},
 				},
 			},
-			enterprise:  true,
-			expectedErr: noChange,
+			enterprise:             true,
+			expectedErr:            require.NoError,
+			accessRequestsNotEmpty: true,
+			expected: &types.RoleV6{
+				Metadata: types.Metadata{
+					Name: teleport.SystemOktaRequesterRoleName,
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.SystemResource,
+						types.OriginLabel:                  types.OriginOkta,
+					},
+				},
+				Spec: types.RoleSpecV6{
+					Allow: types.RoleConditions{
+						Request: &types.AccessRequestConditions{
+							Roles: []string{"some-role"},
+							SearchAsRoles: []string{
+								teleport.SystemOktaAccessRoleName,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			// This test is here to validate that we properly fix a bug previously introduced in the TF role preset.
+			// All the new resources got added into the same rule, but the preset defaults system only supports adding
+			// new rules, not editing existing ones. The resources got removed from the main rule and put into
+			// smaller individual rules.
+			name: "terraform provider (bugfix of the missing resources)",
+			role: &types.RoleV6{
+				Kind:    types.KindRole,
+				Version: types.V7,
+				Metadata: types.Metadata{
+					Name:        teleport.PresetTerraformProviderRoleName,
+					Namespace:   apidefaults.Namespace,
+					Description: "Default Terraform provider role",
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.PresetResource,
+					},
+				},
+				Spec: types.RoleSpecV6{
+					Allow: types.RoleConditions{
+						AppLabels:            map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
+						DatabaseLabels:       map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
+						NodeLabels:           map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
+						WindowsDesktopLabels: map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
+						Rules: []types.Rule{
+							{
+								Resources: []string{
+									types.KindAccessList,
+									types.KindApp,
+									types.KindClusterAuthPreference,
+									types.KindClusterMaintenanceConfig,
+									types.KindClusterNetworkingConfig,
+									types.KindDatabase,
+									types.KindDevice,
+									types.KindGithub,
+									types.KindLoginRule,
+									types.KindNode,
+									types.KindOIDC,
+									types.KindOktaImportRule,
+									types.KindRole,
+									types.KindSAML,
+									types.KindSessionRecordingConfig,
+									types.KindToken,
+									types.KindTrustedCluster,
+									types.KindUser,
+									// Some of the new resources got introduced, but not all
+									types.KindBot,
+									types.KindInstaller,
+								},
+								Verbs: RW(),
+							},
+						},
+					},
+				},
+			},
+			expectedErr: require.NoError,
+			expected: &types.RoleV6{
+				Kind:    types.KindRole,
+				Version: types.V7,
+				Metadata: types.Metadata{
+					Name:        teleport.PresetTerraformProviderRoleName,
+					Namespace:   apidefaults.Namespace,
+					Description: "Default Terraform provider role",
+					Labels: map[string]string{
+						types.TeleportInternalResourceType: types.PresetResource,
+					},
+				},
+				Spec: types.RoleSpecV6{
+					Allow: types.RoleConditions{
+						AppLabels:            map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
+						DatabaseLabels:       map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
+						NodeLabels:           map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
+						WindowsDesktopLabels: map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
+						Rules: []types.Rule{
+							{
+								Resources: []string{
+									types.KindAccessList,
+									types.KindApp,
+									types.KindClusterAuthPreference,
+									types.KindClusterMaintenanceConfig,
+									types.KindClusterNetworkingConfig,
+									types.KindDatabase,
+									types.KindDevice,
+									types.KindGithub,
+									types.KindLoginRule,
+									types.KindNode,
+									types.KindOIDC,
+									types.KindOktaImportRule,
+									types.KindRole,
+									types.KindSAML,
+									types.KindSessionRecordingConfig,
+									types.KindToken,
+									types.KindTrustedCluster,
+									types.KindUser,
+									// The resources that already got into the main rule are still present.
+									types.KindBot,
+									types.KindInstaller,
+								},
+								Verbs: RW(),
+							},
+							// The missing resources got added as individual rules
+							types.NewRule(types.KindAccessMonitoringRule, RW()),
+							types.NewRule(types.KindDynamicWindowsDesktop, RW()),
+							types.NewRule(types.KindStaticHostUser, RW()),
+							types.NewRule(types.KindWorkloadIdentity, RW()),
+							types.NewRule(types.KindGitServer, RW()),
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -436,14 +763,21 @@ func TestAddRoleDefaults(t *testing.T) {
 				})
 			}
 
-			role, err := AddRoleDefaults(test.role)
+			role, err := AddRoleDefaults(context.Background(), test.role)
 			test.expectedErr(t, err)
 
 			require.Empty(t, cmp.Diff(role, test.expected))
 
 			if test.expected != nil {
-				require.Equal(t, test.reviewNotEmpty, !role.GetAccessReviewConditions(types.Allow).IsEmpty())
-				require.Equal(t, test.accessRequestsNotEmpty, !role.GetAccessRequestConditions(types.Allow).IsEmpty())
+				require.Equal(t, test.reviewNotEmpty,
+					!role.GetAccessReviewConditions(types.Allow).IsEmpty(),
+					"Expected populated Access Review Conditions (%t)",
+					test.reviewNotEmpty)
+
+				require.Equal(t, test.accessRequestsNotEmpty,
+					!role.GetAccessRequestConditions(types.Allow).IsEmpty(),
+					"Expected populated Access Request Conditions (%t)",
+					test.accessRequestsNotEmpty)
 			}
 		})
 	}

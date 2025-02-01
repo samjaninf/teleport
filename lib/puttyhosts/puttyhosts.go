@@ -1,35 +1,37 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package puttyhosts
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"text/template"
 
 	"github.com/gravitational/trace"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/exp/slices"
 
-	"github.com/gravitational/teleport/api/constants"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/auth"
+	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/sshutils"
 )
@@ -173,7 +175,7 @@ func getAllHostCAs(tc *client.TeleportClient, cfContext context.Context) ([]type
 	var err error
 	// get all CAs for the cluster (including trusted clusters)
 	var cas []types.CertAuthority
-	err = tc.WithRootClusterClient(cfContext, func(clt auth.ClientI) error {
+	err = tc.WithRootClusterClient(cfContext, func(clt authclient.ClientI) error {
 		cas, err = clt.GetCertAuthorities(cfContext, types.HostCA, false /* exportSecrets */)
 		if err != nil {
 			return trace.Wrap(err)
@@ -212,7 +214,7 @@ func ProcessHostCAPublicKeys(tc *client.TeleportClient, cfContext context.Contex
 					return nil, trace.Wrap(err)
 				}
 
-				hostCAPublicKey := strings.TrimPrefix(strings.TrimSpace(string(ssh.MarshalAuthorizedKey(hostCABytes))), constants.SSHRSAType+" ")
+				hostCAPublicKey := base64.StdEncoding.EncodeToString(hostCABytes.Marshal())
 				hostCAPublicKeys[ca.GetName()] = append(hostCAPublicKeys[ca.GetName()], hostCAPublicKey)
 			}
 		}
@@ -245,7 +247,7 @@ func FormatHostCAPublicKeysForRegistry(hostCAPublicKeys map[string][]string, hos
 // See https://the.earth.li/~sgtatham/putty/0.79/htmldoc/Chapter4.html#config-ssh-cert-valid-expr for details.
 func CheckAndSplitValidityKey(input string, caName string) ([]string, error) {
 	var output []string
-	docsURL := "https://goteleport.com/docs/connect-your-client/putty/#troubleshooting"
+	docsURL := "https://goteleport.com/docs/connect-your-client/putty-winscp/#troubleshooting"
 
 	// if the input string has no content (because the Validity key has no value yet), return the empty list
 	if len(input) == 0 {

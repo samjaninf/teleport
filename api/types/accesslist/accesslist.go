@@ -22,7 +22,9 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
+	"github.com/jonboulle/clockwork"
 
+	accesslistv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/accesslist/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/header"
 	"github.com/gravitational/teleport/api/types/header/convert/legacy"
@@ -74,6 +76,20 @@ func parseReviewFrequency(input string) ReviewFrequency {
 	return 0
 }
 
+// MaxAllowedDepth is the maximum allowed depth for nested access lists.
+const MaxAllowedDepth = 10
+
+var (
+	// MembershipKindUnspecified is the default membership kind (treated as 'user').
+	MembershipKindUnspecified = accesslistv1.MembershipKind_MEMBERSHIP_KIND_UNSPECIFIED.String()
+
+	// MembershipKindUser is the user membership kind.
+	MembershipKindUser = accesslistv1.MembershipKind_MEMBERSHIP_KIND_USER.String()
+
+	// MembershipKindList is the list membership kind.
+	MembershipKindList = accesslistv1.MembershipKind_MEMBERSHIP_KIND_LIST.String()
+)
+
 // ReviewDayOfMonth is the day of month the review should be repeated on.
 type ReviewDayOfMonth int
 
@@ -120,6 +136,9 @@ type AccessList struct {
 
 	// Spec is the specification for the access list.
 	Spec Spec `json:"spec" yaml:"spec"`
+
+	// Status contains dynamically calculated fields.
+	Status Status `json:"status" yaml:"status"`
 }
 
 // Spec is the specification for an access list.
@@ -148,6 +167,9 @@ type Spec struct {
 
 	// Grants describes the access granted by membership to this access list.
 	Grants Grants `json:"grants" yaml:"grants"`
+
+	// OwnerGrants describes the access granted by ownership of this access list.
+	OwnerGrants Grants `json:"owner_grants" yaml:"owner_grants"`
 }
 
 // Owner is an owner of an access list.
@@ -160,6 +182,10 @@ type Owner struct {
 
 	// IneligibleStatus describes the reason why this owner is not eligible.
 	IneligibleStatus string `json:"ineligible_status" yaml:"ineligible_status"`
+
+	// MembershipKind describes the kind of ownership,
+	// either "MEMBERSHIP_KIND_USER" or "MEMBERSHIP_KIND_LIST".
+	MembershipKind string `json:"membership_kind" yaml:"membership_kind"`
 }
 
 // Audit describes the audit configuration for an access list.
@@ -200,6 +226,11 @@ type Requires struct {
 	Traits trait.Traits `json:"traits" yaml:"traits"`
 }
 
+// IsEmpty returns true when no roles or traits are set
+func (r *Requires) IsEmpty() bool {
+	return len(r.Roles) == 0 && len(r.Traits) == 0
+}
+
 // Grants describes what access is granted by membership to the access list.
 type Grants struct {
 	// Roles are the roles that are granted to users who are members of the access list.
@@ -209,22 +240,17 @@ type Grants struct {
 	Traits trait.Traits `json:"traits" yaml:"traits"`
 }
 
-// Member describes a member of an access list.
-type Member struct {
-	// Name is the name of the member of the access list.
-	Name string `json:"name" yaml:"name"`
+// Status contains dynamic fields calculated during retrieval.
+type Status struct {
+	// MemberCount is the number of members in the access list.
+	MemberCount *uint32 `json:"-" yaml:"-"`
+	// MemberListCount is the number of members in the access list that are lists themselves.
+	MemberListCount *uint32 `json:"-" yaml:"-"`
 
-	// Joined is when the user joined the access list.
-	Joined time.Time `json:"joined" yaml:"joined"`
-
-	// expires is when the user's membership to the access list expires.
-	Expires time.Time `json:"expires" yaml:"expires"`
-
-	// reason is the reason this user was added to the access list.
-	Reason string `json:"reason" yaml:"reason"`
-
-	// added_by is the user that added this user to the access list.
-	AddedBy string `json:"added_by" yaml:"added_by"`
+	// OwnerOf is a list of Access List UUIDs where this access list is an explicit owner.
+	OwnerOf []string `json:"owner_of" yaml:"owner_of"`
+	// MemberOf is a list of Access List UUIDs where this access list is an explicit member.
+	MemberOf []string `json:"member_of" yaml:"member_of"`
 }
 
 // NewAccessList will create a new access list.
@@ -258,10 +284,6 @@ func (a *AccessList) CheckAndSetDefaults() error {
 		return trace.BadParameter("owners are missing")
 	}
 
-	if a.Spec.Audit.NextAuditDate.IsZero() {
-		return trace.BadParameter("next audit date is missing")
-	}
-
 	if a.Spec.Audit.Recurrence.Frequency == 0 {
 		a.Spec.Audit.Recurrence.Frequency = SixMonths
 	}
@@ -282,12 +304,12 @@ func (a *AccessList) CheckAndSetDefaults() error {
 		return trace.BadParameter("recurrence day of month is an invalid value")
 	}
 
-	if a.Spec.Audit.Notifications.Start == 0 {
-		a.Spec.Audit.Notifications.Start = twoWeeks
+	if a.Spec.Audit.NextAuditDate.IsZero() {
+		a.setInitialAuditDate(clockwork.NewRealClock())
 	}
 
-	if len(a.Spec.Grants.Roles) == 0 && len(a.Spec.Grants.Traits) == 0 {
-		return trace.BadParameter("grants must specify at least one role or trait")
+	if a.Spec.Audit.Notifications.Start == 0 {
+		a.Spec.Audit.Notifications.Start = twoWeeks
 	}
 
 	// Deduplicate owners. The backend will currently prevent this, but it's possible that access lists
@@ -298,6 +320,9 @@ func (a *AccessList) CheckAndSetDefaults() error {
 	for _, owner := range a.Spec.Owners {
 		if owner.Name == "" {
 			return trace.BadParameter("owner name is missing")
+		}
+		if owner.MembershipKind == "" {
+			owner.MembershipKind = MembershipKindUser
 		}
 
 		if _, ok := ownerMap[owner.Name]; ok {
@@ -317,7 +342,7 @@ func (a *AccessList) GetOwners() []Owner {
 	return a.Spec.Owners
 }
 
-// GetOwners returns the list of owners from the access list.
+// SetOwners sets the owners of the access list.
 func (a *AccessList) SetOwners(owners []Owner) {
 	a.Spec.Owners = owners
 }
@@ -335,6 +360,11 @@ func (a *AccessList) GetOwnershipRequires() Requires {
 // GetGrants returns the grants from the access list.
 func (a *AccessList) GetGrants() Grants {
 	return a.Spec.Grants
+}
+
+// GetOwnerGrants returns the owner grants from the access list.
+func (a *AccessList) GetOwnerGrants() Grants {
+	return a.Spec.OwnerGrants
 }
 
 // GetMetadata returns metadata. This is specifically for conforming to the Resource interface,
@@ -369,6 +399,9 @@ func (a *Audit) UnmarshalJSON(data []byte) error {
 		return trace.Wrap(err)
 	}
 
+	if audit.NextAuditDate == "" {
+		return nil
+	}
 	var err error
 	a.NextAuditDate, err = time.Parse(time.RFC3339Nano, audit.NextAuditDate)
 	if err != nil {
@@ -449,4 +482,33 @@ func (n Notifications) MarshalJSON() ([]byte, error) {
 		Alias: (Alias)(n),
 		Start: n.Start.String(),
 	})
+}
+
+// SelectNextReviewDate will select the next review date for the access list.
+func (a *AccessList) SelectNextReviewDate() time.Time {
+	numMonths := int(a.Spec.Audit.Recurrence.Frequency)
+	dayOfMonth := int(a.Spec.Audit.Recurrence.DayOfMonth)
+
+	// If the last day of the month has been specified, use the 0 day of the
+	// next month, which will result in the last day of the target month.
+	if dayOfMonth == int(LastDayOfMonth) {
+		numMonths += 1
+		dayOfMonth = 0
+	}
+
+	currentReviewDate := a.Spec.Audit.NextAuditDate
+	nextDate := time.Date(currentReviewDate.Year(), currentReviewDate.Month()+time.Month(numMonths), dayOfMonth,
+		0, 0, 0, 0, time.UTC)
+
+	return nextDate
+}
+
+// setInitialAuditDate sets the NextAuditDate for a newly created AccessList.
+// The function is extracted from CheckAndSetDefaults for the sake of testing
+// (we need to pass a fake clock).
+func (a *AccessList) setInitialAuditDate(clock clockwork.Clock) {
+	// We act as if the AccessList just got reviewed (we just created it, so
+	// we're pretty sure of what it does) and pick the next review date.
+	a.Spec.Audit.NextAuditDate = clock.Now()
+	a.Spec.Audit.NextAuditDate = a.SelectNextReviewDate()
 }

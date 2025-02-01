@@ -1,19 +1,19 @@
 /*
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Copyright 2022 Gravitational, Inc.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- * /
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package cert
@@ -28,9 +28,9 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
-	"github.com/sirupsen/logrus"
 
-	"github.com/gravitational/teleport/lib/auth/native"
+	"github.com/gravitational/teleport/api/utils/keys"
+	"github.com/gravitational/teleport/lib/cryptosuites"
 )
 
 // macMaxTLSCertValidityPeriod is the maximum validity period
@@ -59,7 +59,7 @@ func GenerateSelfSignedCert(hostNames []string, ipAddresses []string, eku ...x50
 		eku = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
 	}
 
-	priv, err := native.GenerateRSAPrivateKey()
+	priv, err := cryptosuites.GenerateKeyWithAlgorithm(cryptosuites.ECDSAP256)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -84,7 +84,7 @@ func GenerateSelfSignedCert(hostNames []string, ipAddresses []string, eku ...x50
 		Subject:               entity,
 		NotBefore:             notBefore,
 		NotAfter:              notAfter,
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 		ExtKeyUsage:           eku,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
@@ -104,20 +104,23 @@ func GenerateSelfSignedCert(hostNames []string, ipAddresses []string, eku ...x50
 		template.IPAddresses = append(template.IPAddresses, ipParsed)
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, priv.Public(), priv)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	publicKeyBytes, err := x509.MarshalPKIXPublicKey(priv.Public())
+	privateKeyBytes, err := keys.MarshalPrivateKey(priv)
 	if err != nil {
-		logrus.Error(err)
+		return nil, trace.Wrap(err)
+	}
+	publicKeyBytes, err := keys.MarshalPublicKey(priv.Public())
+	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
 	return &Credentials{
-		PublicKey:  pem.EncodeToMemory(&pem.Block{Type: "RSA PUBLIC KEY", Bytes: publicKeyBytes}),
-		PrivateKey: pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}),
+		PrivateKey: privateKeyBytes,
+		PublicKey:  publicKeyBytes,
 		Cert:       pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes}),
 	}, nil
 }

@@ -1,28 +1,32 @@
-// Copyright 2022 Gravitational, Inc
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package srv
 
 import (
 	"context"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"golang.org/x/crypto/ssh"
 
@@ -71,7 +75,7 @@ type SessionControllerConfig struct {
 	// have different flows
 	Component string
 	// Logger is used to emit log entries
-	Logger *logrus.Entry
+	Logger *slog.Logger
 	// TracerProvider creates a tracer so that spans may be emitted
 	TracerProvider oteltrace.TracerProvider
 	// ServerID is the UUID of the server
@@ -110,7 +114,7 @@ func (c *SessionControllerConfig) CheckAndSetDefaults() error {
 	}
 
 	if c.Logger == nil {
-		c.Logger = logrus.WithField(trace.Component, "SessionCtrl")
+		c.Logger = slog.With(teleport.ComponentKey, "SessionCtrl")
 	}
 
 	if c.Clock == nil {
@@ -232,7 +236,7 @@ func (s *SessionController) AcquireSessionContext(ctx context.Context, identity 
 	}
 
 	// Device Trust: authorize device extensions.
-	if err := dtauthz.VerifySSHUser(authPref.GetDeviceTrust(), identity.Certificate); err != nil {
+	if err := dtauthz.VerifySSHUser(ctx, authPref.GetDeviceTrust(), identity.Certificate); err != nil {
 		return ctx, trace.Wrap(err)
 	}
 
@@ -331,12 +335,13 @@ func (s *SessionController) emitRejection(ctx context.Context, userMetadata apie
 			RemoteAddr: remoteAddr,
 		},
 		ServerMetadata: apievents.ServerMetadata{
+			ServerVersion:   teleport.Version,
 			ServerID:        s.cfg.ServerID,
 			ServerNamespace: apidefaults.Namespace,
 		},
 		Reason:  reason,
 		Maximum: max,
 	}); err != nil {
-		s.cfg.Logger.WithError(err).Warn("Failed to emit session reject event.")
+		s.cfg.Logger.WarnContext(ctx, "Failed to emit session reject event", "error", err)
 	}
 }

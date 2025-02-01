@@ -1,16 +1,20 @@
-// Copyright 2023 Gravitational, Inc
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package athena
 
@@ -33,9 +37,20 @@ import (
 )
 
 func TestIntegrationAthenaSearchSessionEventsBySessionID(t *testing.T) {
+	t.Run("sns", func(t *testing.T) {
+		const bypassSNSFalse = false
+		testIntegrationAthenaSearchSessionEventsBySessionID(t, bypassSNSFalse)
+	})
+	t.Run("sqs", func(t *testing.T) {
+		const bypassSNSTrue = true
+		testIntegrationAthenaSearchSessionEventsBySessionID(t, bypassSNSTrue)
+	})
+}
+
+func testIntegrationAthenaSearchSessionEventsBySessionID(t *testing.T, bypassSNS bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{})
+	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{BypassSNS: bypassSNS})
 	auditLogger := &EventuallyConsistentAuditLogger{
 		Inner: ac.log,
 		// Additional 5s is used to compensate for uploading parquet on s3.
@@ -51,9 +66,20 @@ func TestIntegrationAthenaSearchSessionEventsBySessionID(t *testing.T) {
 }
 
 func TestIntegrationAthenaSessionEventsCRUD(t *testing.T) {
+	t.Run("sns", func(t *testing.T) {
+		const bypassSNSFalse = false
+		testIntegrationAthenaSessionEventsCRUD(t, bypassSNSFalse)
+	})
+	t.Run("sqs", func(t *testing.T) {
+		const bypassSNSTrue = true
+		testIntegrationAthenaSessionEventsCRUD(t, bypassSNSTrue)
+	})
+}
+
+func testIntegrationAthenaSessionEventsCRUD(t *testing.T, bypassSNS bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{})
+	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{BypassSNS: bypassSNS})
 	auditLogger := &EventuallyConsistentAuditLogger{
 		Inner: ac.log,
 		// Additional 5s is used to compensate for uploading parquet on s3.
@@ -67,10 +93,49 @@ func TestIntegrationAthenaSessionEventsCRUD(t *testing.T) {
 	eventsSuite.SessionEventsCRUD(t)
 }
 
-func TestIntegrationAthenaEventPagination(t *testing.T) {
+func TestIntegrationAthenaEventExport(t *testing.T) {
+	t.Run("sns", func(t *testing.T) {
+		const bypassSNSFalse = false
+		testIntegrationAthenaEventExport(t, bypassSNSFalse)
+	})
+	t.Run("sqs", func(t *testing.T) {
+		const bypassSNSTrue = true
+		testIntegrationAthenaEventExport(t, bypassSNSTrue)
+	})
+}
+
+func testIntegrationAthenaEventExport(t *testing.T, bypassSNS bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{})
+	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{BypassSNS: bypassSNS})
+	auditLogger := &EventuallyConsistentAuditLogger{
+		Inner: ac.log,
+		// Additional 5s is used to compensate for uploading parquet on s3.
+		QueryDelay: ac.batcherInterval + 5*time.Second,
+	}
+	eventsSuite := test.EventsSuite{
+		Log:   auditLogger,
+		Clock: ac.clock,
+	}
+
+	eventsSuite.EventExport(t)
+}
+
+func TestIntegrationAthenaEventPagination(t *testing.T) {
+	t.Run("sns", func(t *testing.T) {
+		const bypassSNSFalse = false
+		testIntegrationAthenaEventPagination(t, bypassSNSFalse)
+	})
+	t.Run("sqs", func(t *testing.T) {
+		const bypassSNSTrue = true
+		testIntegrationAthenaEventPagination(t, bypassSNSTrue)
+	})
+}
+
+func testIntegrationAthenaEventPagination(t *testing.T, bypassSNS bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{BypassSNS: bypassSNS})
 	auditLogger := &EventuallyConsistentAuditLogger{
 		Inner: ac.log,
 		// Additional 5s is used to compensate for uploading parquet on s3.
@@ -85,10 +150,24 @@ func TestIntegrationAthenaEventPagination(t *testing.T) {
 }
 
 func TestIntegrationAthenaLargeEvents(t *testing.T) {
+	t.Run("sns", func(t *testing.T) {
+		const bypassSNSFalse = false
+		testIntegrationAthenaLargeEvents(t, bypassSNSFalse)
+	})
+	t.Run("sqs", func(t *testing.T) {
+		const bypassSNSTrue = true
+		testIntegrationAthenaLargeEvents(t, bypassSNSTrue)
+	})
+}
+
+func testIntegrationAthenaLargeEvents(t *testing.T, bypassSNS bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{MaxBatchSize: 1})
+	ac := SetupAthenaContext(t, ctx, AthenaContextConfig{
+		MaxBatchSize: 1,
+		BypassSNS:    bypassSNS,
+	})
 	in := &apievents.SessionStart{
 		Metadata: apievents.Metadata{
 			Index: 2,

@@ -23,18 +23,17 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gravitational/trace"
-	"github.com/gravitational/trace/trail"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"golang.org/x/exp/slices"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -44,6 +43,7 @@ import (
 	"github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
 	transportv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/transport/v1"
+	"github.com/gravitational/teleport/api/trail"
 	"github.com/gravitational/teleport/api/utils/grpc/stream"
 )
 
@@ -114,16 +114,15 @@ type fakeGRPCServer struct {
 }
 
 type fakeAuthServer struct {
-	*proto.UnimplementedAuthServiceServer
+	proto.UnimplementedAuthServiceServer
 	listener net.Listener
 	srv      *grpc.Server
 }
 
 func newFakeAuthServer(t *testing.T, conn net.Conn) *fakeAuthServer {
 	f := &fakeAuthServer{
-		listener:                       newOneShotListener(conn),
-		UnimplementedAuthServiceServer: &proto.UnimplementedAuthServiceServer{},
-		srv:                            grpc.NewServer(),
+		listener: newOneShotListener(conn),
+		srv:      grpc.NewServer(),
 	}
 
 	t.Cleanup(f.Stop)
@@ -397,12 +396,12 @@ func TestClient_DialHost(t *testing.T) {
 				msg := []byte("hello123")
 				n, err := conn.Write(msg)
 				require.NoError(t, err)
-				require.Equal(t, len(msg), n)
+				require.Len(t, msg, n)
 
 				out := make([]byte, len(msg))
 				n, err = conn.Read(out)
 				require.NoError(t, err)
-				require.Equal(t, len(msg), n)
+				require.Len(t, msg, n)
 				require.Equal(t, msg, out)
 
 				require.NoError(t, conn.Close())
@@ -508,7 +507,9 @@ func TestClient_DialCluster(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, clt.Close()) })
 
-			authCfg := clt.ClientConfig(ctx, "cluster")
+			authCfg, err := clt.ClientConfig(ctx, "cluster")
+			require.NoError(t, err)
+
 			authCfg.DialOpts = []grpc.DialOption{
 				grpc.WithTransportCredentials(insecure.NewCredentials()),
 				grpc.WithReturnConnectionError(),

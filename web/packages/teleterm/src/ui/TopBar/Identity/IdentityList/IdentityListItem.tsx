@@ -1,89 +1,171 @@
 /**
- * Copyright 2023 Gravitational, Inc
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { useCallback } from 'react';
+import styled from 'styled-components';
 
-import React, { useState } from 'react';
-import { ButtonIcon, Flex, Label, Text } from 'design';
+import { ButtonText, Flex, P3, Text } from 'design';
 import { Logout } from 'design/Icon';
+import { Cluster } from 'gen-proto-ts/teleport/lib/teleterm/v1/cluster_pb';
 
-import { ListItem } from 'teleterm/ui/components/ListItem';
 import { useKeyboardArrowsNavigation } from 'teleterm/ui/components/KeyboardArrowsNavigation';
-import { getUserWithClusterName } from 'teleterm/ui/utils';
+import { ListItem } from 'teleterm/ui/components/ListItem';
+import { ProfileStatusError } from 'teleterm/ui/components/ProfileStatusError';
+import { useStoreSelector } from 'teleterm/ui/hooks/useStoreSelector';
+import { WorkspaceColor } from 'teleterm/ui/services/workspacesService';
 
-interface IdentityListItemProps {
+import { UserIcon } from '../IdentitySelector/UserIcon';
+
+export function IdentityListItem(props: {
   index: number;
-  userName?: string;
-  clusterName: string;
-  isSelected: boolean;
-
+  cluster: Cluster;
   onSelect(): void;
-  onLogout(): void;
-}
-
-export function IdentityListItem(props: IdentityListItemProps) {
-  const [isHovered, setIsHovered] = useState(false);
+  /** If defined, the logout button is rendered. */
+  onLogout?(): void;
+}) {
   const { isActive } = useKeyboardArrowsNavigation({
     index: props.index,
     onRun: props.onSelect,
   });
-
-  const userWithClusterName = getUserWithClusterName(props);
+  const workspaceColor = useStoreSelector(
+    'workspacesService',
+    useCallback(
+      state => state.workspaces[props.cluster.uri]?.color,
+      [props.cluster.uri]
+    )
+  );
 
   return (
-    <ListItem
-      css={`
-        border-radius: 0;
-        height: 38px;
-      `}
+    <StyledListItem
       onClick={props.onSelect}
+      onKeyDown={e =>
+        (e.key === 'Enter' || e.key === 'Space') && props.onSelect()
+      }
       isActive={isActive}
-      onMouseEnter={() => {
-        setIsHovered(true);
-      }}
-      onMouseLeave={() => {
-        setIsHovered(false);
-      }}
+      title={`Switch to ${props.cluster.name}`}
     >
-      <Flex justifyContent="space-between" alignItems="center" width="100%">
-        <Text typography="body1" title={userWithClusterName}>
-          {userWithClusterName}
-        </Text>
-        <Flex alignItems="center">
-          {props.isSelected ? (
-            <Label kind="success" ml={2} style={{ height: 'fit-content' }}>
-              active
-            </Label>
-          ) : null}
-          <ButtonIcon
-            mr="-10px"
-            style={{
-              visibility: isHovered ? 'visible' : 'hidden',
-              transition: 'none',
-            }}
-            ml={2}
-            title={`Log out from ${props.clusterName}`}
+      <Flex width="100%" justifyContent="space-between">
+        <WithIconItem
+          letter={getClusterLetter(props.cluster)}
+          color={workspaceColor}
+          title={props.cluster.name}
+          subtitle={props.cluster.loggedInUser?.name}
+        />
+        {props.onLogout && (
+          <ButtonText
+            intent="danger"
+            size="small"
+            className="logout"
+            css={`
+              visibility: hidden;
+              transition: none;
+            `}
+            p={1}
+            ml={4}
+            title={`Log out from ${props.cluster.name}`}
             onClick={e => {
               e.stopPropagation();
               props.onLogout();
             }}
           >
-            {/* Due to the icon shape it appears to be not centered, so a small margin is added */}
-            <Logout ml="2px" size="small" />
-          </ButtonIcon>
-        </Flex>
+            <Logout size="small" />
+          </ButtonText>
+        )}
       </Flex>
-    </ListItem>
+      {props.cluster.profileStatusError && (
+        <ProfileStatusError
+          error={props.cluster.profileStatusError}
+          // Align the error with the user icon.
+          css={`
+            margin-left: ${props => props.theme.space[2]}px;
+            gap: 10px;
+          `}
+        />
+      )}
+    </StyledListItem>
   );
+}
+
+export function AddClusterItem(props: { index: number; onClick(): void }) {
+  const { isActive } = useKeyboardArrowsNavigation({
+    index: props.index,
+    onRun: props.onClick,
+  });
+
+  return (
+    <StyledListItem isActive={isActive} onClick={props.onClick}>
+      <WithIconItem letter="+" title="Add Cluster…" />
+    </StyledListItem>
+  );
+}
+
+const StyledListItem = styled(ListItem)`
+  padding: ${props => props.theme.space[2]}px ${props => props.theme.space[3]}px;
+  flex-direction: column;
+  align-items: start;
+  gap: ${props => props.theme.space[1]}px;
+  border-radius: 0;
+  height: 100%;
+  &:hover .logout {
+    visibility: visible;
+  }
+`;
+
+function WithIconItem(props: {
+  letter: string;
+  title: string;
+  subtitle?: string;
+  color?: WorkspaceColor;
+}) {
+  return (
+    <Flex gap={2} alignItems="center">
+      <UserIcon letter={props.letter} color={props.color} />
+      <TitleAndSubtitle subtitle={props.subtitle} title={props.title} />
+    </Flex>
+  );
+}
+
+export function TitleAndSubtitle(props: { title: string; subtitle?: string }) {
+  return (
+    <Flex flexDirection="column">
+      <Text
+        typography="body2"
+        fontWeight="400"
+        css={`
+          line-height: 1.25;
+        `}
+      >
+        {props.title}
+      </Text>
+
+      {props.subtitle && (
+        <P3
+          color="text.slightlyMuted"
+          css={`
+            line-height: 1.25;
+          `}
+        >
+          {props.subtitle}
+        </P3>
+      )}
+    </Flex>
+  );
+}
+
+export function getClusterLetter(cluster: Cluster): string {
+  return cluster.name.at(0);
 }

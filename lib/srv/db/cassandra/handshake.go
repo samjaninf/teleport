@@ -1,18 +1,20 @@
 /*
-Copyright 2022 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package cassandra
 
@@ -26,7 +28,7 @@ import (
 	"github.com/gocql/gocql"
 	"github.com/gravitational/trace"
 
-	"github.com/gravitational/teleport/lib/cloud"
+	"github.com/gravitational/teleport/lib/cloud/awsconfig"
 	"github.com/gravitational/teleport/lib/srv/db/cassandra/protocol"
 	"github.com/gravitational/teleport/lib/srv/db/common"
 	awsutils "github.com/gravitational/teleport/lib/utils/aws"
@@ -188,8 +190,8 @@ func sendAuthenticationErrorMessage(authErr error, clientConn *protocol.Conn, in
 
 // authHandler is a handler that performs the Cassandra authentication flow.
 type authAWSSigV4Auth struct {
-	ses          *common.Session
-	cloudClients cloud.Clients
+	ses       *common.Session
+	awsConfig awsconfig.Provider
 }
 
 func (a *authAWSSigV4Auth) getSigV4Authenticator(ctx context.Context) (gocql.Authenticator, error) {
@@ -198,20 +200,22 @@ func (a *authAWSSigV4Auth) getSigV4Authenticator(ctx context.Context) (gocql.Aut
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	baseSession, err := a.cloudClients.GetAWSSession(ctx, meta.Region, cloud.WithAssumeRoleFromAWSMeta(meta))
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	var externalID string
+	// ExternalID should only be used in one of the assumed roles. If the
+	// configuration doesn't specify the AssumeRoleARN, it should be used for
+	// the database role.
+	var dbRoleExternalID string
 	if meta.AssumeRoleARN == "" {
-		externalID = meta.ExternalID
+		dbRoleExternalID = meta.ExternalID
 	}
-	session, err := a.cloudClients.GetAWSSession(ctx, meta.Region,
-		cloud.WithChainedAssumeRole(baseSession, roleARN, externalID))
+	awsCfg, err := a.awsConfig.GetConfig(ctx, meta.Region,
+		awsconfig.WithAssumeRole(meta.AssumeRoleARN, meta.ExternalID),
+		awsconfig.WithAssumeRole(roleARN, dbRoleExternalID),
+		awsconfig.WithAmbientCredentials(),
+	)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	cred, err := session.Config.Credentials.GetWithContext(ctx)
+	cred, err := awsCfg.Credentials.Retrieve(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

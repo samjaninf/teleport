@@ -1,23 +1,24 @@
 /**
- * Copyright 2023 Gravitational, Inc.
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
 import styled from 'styled-components';
 
-import { Text, ButtonSecondary } from 'design';
+import { ButtonSecondary, H2, Text } from 'design';
 import Table, { Cell } from 'design/DataTable';
 import Dialog, { DialogContent, DialogFooter } from 'design/DialogConfirmation';
 
@@ -30,8 +31,7 @@ export function SecurityGroupRulesDialog({
   viewRulesSelection: ViewRulesSelection;
   onClose: () => void;
 }) {
-  const { ruleType, sg } = viewRulesSelection;
-  const data = ruleType === 'inbound' ? sg.inboundRules : sg.outboundRules;
+  const { name, rules, ruleType } = viewRulesSelection;
 
   return (
     <Dialog disableEscapeKeyDown={false} open={true}>
@@ -41,12 +41,11 @@ export function SecurityGroupRulesDialog({
         mb={0}
         textAlign="center"
       >
-        <Text mb={4} typography="h4">
-          {ruleType === 'inbound' ? 'Inbound' : 'Outbound'} Rules for [{sg.name}
-          ]
-        </Text>
+        <H2 mb={4}>
+          {ruleType === 'inbound' ? 'Inbound' : 'Outbound'} Rules for [{name}]
+        </H2>
         <StyledTable
-          data={data}
+          data={rules}
           columns={[
             {
               key: 'ipProtocol',
@@ -55,22 +54,22 @@ export function SecurityGroupRulesDialog({
             {
               altKey: 'portRange',
               headerText: 'Port Range',
-              render: ({ fromPort, toPort }) => {
-                // If they are the same, only show one number.
-                const portRange =
-                  fromPort === toPort ? fromPort : `${fromPort} - ${toPort}`;
-                return <Cell>{portRange}</Cell>;
+              render: ({ ipProtocol, fromPort, toPort }) => {
+                return (
+                  <Cell>{getPortRange(ipProtocol, fromPort, toPort)}</Cell>
+                );
               },
             },
             {
               altKey: 'source',
               headerText: 'Source',
-              render: ({ cidrs }) => {
-                // The AWS API returns an array, however it appears it's not actually possible to have multiple CIDR's for a single rule.
-                // As a fallback we just display the first one.
-                const cidr = cidrs[0];
-                if (cidr) {
-                  return <Cell>{cidr.cidr}</Cell>;
+              render: ({ source }) => {
+                if (source) {
+                  return (
+                    <Cell>
+                      <Text title={source}>{source}</Text>
+                    </Cell>
+                  );
                 }
                 return null;
               },
@@ -78,10 +77,13 @@ export function SecurityGroupRulesDialog({
             {
               altKey: 'description',
               headerText: 'Description',
-              render: ({ cidrs }) => {
-                const cidr = cidrs[0];
-                if (cidr) {
-                  return <Cell>{cidr.description}</Cell>;
+              render: ({ description }) => {
+                if (description) {
+                  return (
+                    <Cell>
+                      <Text title={description}>{description}</Text>
+                    </Cell>
+                  );
                 }
                 return null;
               },
@@ -108,6 +110,8 @@ const StyledTable = styled(Table)`
   & > tbody > tr > td {
     vertical-align: middle;
     text-align: left;
+    max-width: 200px;
+    text-wrap: nowrap;
   }
 
   & > thead > tr > th {
@@ -118,3 +122,17 @@ const StyledTable = styled(Table)`
   box-shadow: ${props => props.theme.boxShadow[0]};
   overflow: hidden;
 ` as typeof Table;
+
+function getPortRange(
+  ipProtocol: string,
+  fromPort: string,
+  toPort: string
+): string {
+  if (ipProtocol === 'all') {
+    // fromPort and toPort are irrelevant and AWS currently returns 0 for both
+    // in this case.
+    return 'all';
+  }
+  // If they are the same, only show one number.
+  return fromPort === toPort ? fromPort : `${fromPort} - ${toPort}`;
+}

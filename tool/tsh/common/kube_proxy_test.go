@@ -1,31 +1,34 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package common
 
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
-	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,13 +45,14 @@ import (
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils/keypaths"
+	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib/kube/kubeconfig"
 	"github.com/gravitational/teleport/lib/srv/alpnproxy/common"
 )
 
 func (p *kubeTestPack) testProxyKube(t *testing.T) {
 	// Set default kubeconfig to a non-exist file to avoid loading other things.
-	t.Setenv("KUBECONFIG", path.Join(os.Getenv(types.HomeEnvVar), uuid.NewString()))
+	t.Setenv("KUBECONFIG", filepath.Join(os.Getenv(types.HomeEnvVar), uuid.NewString()))
 
 	// Test "tsh proxy kube root-cluster1".
 	t.Run("with kube cluster arg", func(t *testing.T) {
@@ -58,7 +62,7 @@ func (p *kubeTestPack) testProxyKube(t *testing.T) {
 
 		validateCmd := func(cmd *exec.Cmd) error {
 			config := kubeConfigFromCmdEnv(t, cmd)
-			checkKubeLocalProxyConfig(t, p.suite, config, p.rootClusterName, p.rootKubeCluster1)
+			checkKubeLocalProxyConfig(t, config, p.rootClusterName, p.rootKubeCluster1)
 			return nil
 		}
 		err := Run(
@@ -80,8 +84,8 @@ func (p *kubeTestPack) testProxyKube(t *testing.T) {
 
 		validateCmd := func(cmd *exec.Cmd) error {
 			config := kubeConfigFromCmdEnv(t, cmd)
-			checkKubeLocalProxyConfig(t, p.suite, config, p.rootClusterName, p.rootKubeCluster2)
-			checkKubeLocalProxyConfig(t, p.suite, config, p.leafClusterName, p.leafKubeCluster)
+			checkKubeLocalProxyConfig(t, config, p.rootClusterName, p.rootKubeCluster2)
+			checkKubeLocalProxyConfig(t, config, p.leafClusterName, p.leafKubeCluster)
 			return nil
 		}
 		err := Run(
@@ -114,7 +118,7 @@ func kubeConfigFromCmdEnv(t *testing.T, cmd *exec.Cmd) *clientcmdapi.Config {
 	return nil
 }
 
-func checkKubeLocalProxyConfig(t *testing.T, s *suite, config *clientcmdapi.Config, teleportCluster, kubeCluster string) {
+func checkKubeLocalProxyConfig(t *testing.T, config *clientcmdapi.Config, teleportCluster, kubeCluster string) {
 	t.Helper()
 
 	sendRequestToKubeLocalProxy(t, config, teleportCluster, kubeCluster)
@@ -131,6 +135,11 @@ func sendRequestToKubeLocalProxy(t *testing.T, config *clientcmdapi.Config, tele
 	proxyURL, err := url.Parse(config.Clusters[contextName].ProxyURL)
 	require.NoError(t, err)
 
+	// Sanity check we're using an ECDSA client key.
+	key, err := keys.ParsePrivateKey(config.AuthInfos[contextName].ClientKeyData)
+	require.NoError(t, err)
+	require.IsType(t, (*ecdsa.PrivateKey)(nil), key.Signer)
+
 	tlsClientConfig := rest.TLSClientConfig{
 		CAData:     config.Clusters[contextName].CertificateAuthorityData,
 		CertData:   config.AuthInfos[contextName].ClientCertificateData,
@@ -146,8 +155,8 @@ func sendRequestToKubeLocalProxy(t *testing.T, config *clientcmdapi.Config, tele
 	require.NoError(t, err)
 
 	resp, err := client.CoreV1().Pods("default").List(context.Background(), metav1.ListOptions{})
-	require.Nil(t, err)
-	require.GreaterOrEqual(t, len(resp.Items), 1)
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Items)
 
 	runKubectlExec(t, restConfig)
 }

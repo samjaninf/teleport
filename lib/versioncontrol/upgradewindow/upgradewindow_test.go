@@ -1,18 +1,20 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package upgradewindow
 
@@ -25,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gravitational/trace"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/client/proto"
@@ -42,7 +45,7 @@ func newFakeKubeBackend() *fakeKubeBackend {
 }
 
 func (b *fakeKubeBackend) Put(ctx context.Context, item backend.Item) (*backend.Lease, error) {
-	b.data[string(item.Key)] = string(item.Value)
+	b.data[item.Key.String()] = string(item.Value)
 	return nil, nil
 }
 
@@ -122,7 +125,7 @@ func TestSystemdUnitDriver(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, driver.Kind(), "unit")
+	require.Equal(t, "unit", driver.Kind())
 
 	// verify basic schedule creation
 	err = driver.Sync(ctx, proto.ExportUpgradeWindowsResponse{
@@ -180,6 +183,37 @@ func TestSystemdUnitDriver(t *testing.T) {
 	require.Equal(t, "", string(sb))
 }
 
+// TestSystemdUnitDriverNop verifies the nop schedule behavior of the systemd unit export driver.
+func TestSystemdUnitDriverNop(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// use a sub-directory of a temp dir in order to verify that
+	// driver creates dir when needed.
+	dir := filepath.Join(t.TempDir(), "config")
+
+	driver, err := NewSystemdUnitDriver(SystemdUnitDriverConfig{
+		ConfigDir: dir,
+	})
+	require.NoError(t, err)
+
+	err = driver.Sync(ctx, proto.ExportUpgradeWindowsResponse{
+		SystemdUnitSchedule: "fake-schedule",
+	})
+	require.NoError(t, err)
+
+	err = driver.ForceNop(ctx)
+	require.NoError(t, err)
+
+	schedPath := filepath.Join(dir, "schedule")
+	sb, err := os.ReadFile(schedPath)
+	require.NoError(t, err)
+
+	require.Equal(t, scheduleNop, string(sb))
+}
+
 // fakeDriver is used to inject custom behavior into a dummy Driver instance.
 type fakeDriver struct {
 	mu    sync.Mutex
@@ -205,6 +239,10 @@ func (d *fakeDriver) Sync(ctx context.Context, rsp proto.ExportUpgradeWindowsRes
 	}
 
 	return nil
+}
+
+func (d *fakeDriver) ForceNop(ctx context.Context) error {
+	return trace.NotImplemented("force-nop not used by exporter")
 }
 
 func (d *fakeDriver) Reset(ctx context.Context) error {

@@ -1,18 +1,20 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package usagereporter
 
@@ -203,6 +205,29 @@ func (u *UIDiscoverDatabaseRDSEnrollEvent) Anonymize(a utils.Anonymizer) prehogv
 	}
 }
 
+// UIDiscoverKubeEKSEnrollEvent is emitted when a user is finished with
+// the step that asks user to select from a list of EKS clusters.
+type UIDiscoverKubeEKSEnrollEvent prehogv1a.UIDiscoverKubeEKSEnrollEvent
+
+func (u *UIDiscoverKubeEKSEnrollEvent) CheckAndSetDefaults() error {
+	return trace.Wrap(validateDiscoverBaseEventFields(u.Metadata, u.Resource, u.Status))
+}
+
+func (u *UIDiscoverKubeEKSEnrollEvent) Anonymize(a utils.Anonymizer) prehogv1a.SubmitEventRequest {
+	return prehogv1a.SubmitEventRequest{
+		Event: &prehogv1a.SubmitEventRequest_UiDiscoverKubeEksEnrollEvent{
+			UiDiscoverKubeEksEnrollEvent: &prehogv1a.UIDiscoverKubeEKSEnrollEvent{
+				Metadata: &prehogv1a.DiscoverMetadata{
+					Id:       u.Metadata.Id,
+					UserName: a.AnonymizeString(u.Metadata.UserName),
+				},
+				Resource: u.Resource,
+				Status:   u.Status,
+			},
+		},
+	}
+}
+
 // UIDiscoverDeployServiceEvent is emitted after the user installs a Teleport Agent.
 // For SSH this is the Teleport 'install-node' script.
 //
@@ -228,6 +253,29 @@ func (u *UIDiscoverDeployServiceEvent) Anonymize(a utils.Anonymizer) prehogv1a.S
 				Status:       u.Status,
 				DeployMethod: u.DeployMethod,
 				DeployType:   u.DeployType,
+			},
+		},
+	}
+}
+
+// UIDiscoverCreateDiscoveryConfigEvent is emitted after a discovery config was created.
+type UIDiscoverCreateDiscoveryConfigEvent prehogv1a.UIDiscoverCreateDiscoveryConfigEvent
+
+func (u *UIDiscoverCreateDiscoveryConfigEvent) CheckAndSetDefaults() error {
+	return trace.Wrap(validateDiscoverBaseEventFields(u.Metadata, u.Resource, u.Status))
+}
+
+func (u *UIDiscoverCreateDiscoveryConfigEvent) Anonymize(a utils.Anonymizer) prehogv1a.SubmitEventRequest {
+	return prehogv1a.SubmitEventRequest{
+		Event: &prehogv1a.SubmitEventRequest_UiDiscoverCreateDiscoveryConfig{
+			UiDiscoverCreateDiscoveryConfig: &prehogv1a.UIDiscoverCreateDiscoveryConfigEvent{
+				Metadata: &prehogv1a.DiscoverMetadata{
+					Id:       u.Metadata.Id,
+					UserName: a.AnonymizeString(u.Metadata.UserName),
+				},
+				Resource:     u.Resource,
+				Status:       u.Status,
+				ConfigMethod: u.ConfigMethod,
 			},
 		},
 	}
@@ -407,6 +455,28 @@ func (u *UIDiscoverCreateNodeEvent) Anonymize(a utils.Anonymizer) prehogv1a.Subm
 	return prehogv1a.SubmitEventRequest{
 		Event: &prehogv1a.SubmitEventRequest_UiDiscoverCreateNode{
 			UiDiscoverCreateNode: &prehogv1a.UIDiscoverCreateNodeEvent{
+				Metadata: &prehogv1a.DiscoverMetadata{
+					Id:       u.Metadata.Id,
+					UserName: a.AnonymizeString(u.Metadata.UserName),
+				},
+				Resource: u.Resource,
+				Status:   u.Status,
+			},
+		},
+	}
+}
+
+// UIDiscoverCreateAppServerEvent is emitted when the node is created in Teleport.
+type UIDiscoverCreateAppServerEvent prehogv1a.UIDiscoverCreateAppServerEvent
+
+func (u *UIDiscoverCreateAppServerEvent) CheckAndSetDefaults() error {
+	return trace.Wrap(validateDiscoverBaseEventFields(u.Metadata, u.Resource, u.Status))
+}
+
+func (u *UIDiscoverCreateAppServerEvent) Anonymize(a utils.Anonymizer) prehogv1a.SubmitEventRequest {
+	return prehogv1a.SubmitEventRequest{
+		Event: &prehogv1a.SubmitEventRequest_UiDiscoverCreateAppServerEvent{
+			UiDiscoverCreateAppServerEvent: &prehogv1a.UIDiscoverCreateAppServerEvent{
 				Metadata: &prehogv1a.DiscoverMetadata{
 					Id:       u.Metadata.Id,
 					UserName: a.AnonymizeString(u.Metadata.UserName),

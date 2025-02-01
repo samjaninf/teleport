@@ -1,40 +1,81 @@
 /**
- * Copyright 2023 Gravitational, Inc
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 import {
+  Document,
   DocumentGateway,
   DocumentGatewayKube,
   DocumentTshKube,
   DocumentTshNode,
   DocumentTshNodeWithServerId,
+  getDocumentGatewayTargetUriKind,
   isDocumentTshNodeWithServerId,
 } from 'teleterm/ui/services/workspacesService';
 import { unique } from 'teleterm/ui/utils/uid';
 
 import {
+  TrackedConnection,
   TrackedGatewayConnection,
   TrackedKubeConnection,
   TrackedServerConnection,
 } from './types';
 
-export function getGatewayConnectionByDocument(document: DocumentGateway) {
-  return (i: TrackedGatewayConnection) =>
-    i.kind === 'connection.gateway' &&
-    i.targetUri === document.targetUri &&
-    i.targetUser === document.targetUser;
+/*
+ * Getting a connection by a document.
+ */
+
+/**
+ *
+ * getGatewayConnectionByDocument looks for a connection that has the same gateway params as the
+ * document.
+ *
+ * ---
+ *
+ * This function is used in two scenarios. It's used when recreating the list of connections based
+ * on open documents. If there's no connection found that matches DocumentGateway, a new connection
+ * is added to the list.
+ *
+ * It's also used when opening new gateways for databases and apps to find an existing connection
+ * and call it's `activate` handler, which is going to open an existing document. If no existing
+ * connection is found, a new document is added to the workspace.
+ */
+export function getGatewayConnectionByDocument(
+  document: DocumentGateway
+): (c: TrackedConnection) => boolean {
+  const targetKind = getDocumentGatewayTargetUriKind(document.targetUri);
+
+  switch (targetKind) {
+    case 'db': {
+      return c =>
+        c.kind === 'connection.gateway' &&
+        c.targetUri === document.targetUri &&
+        c.targetUser === document.targetUser;
+    }
+    case 'app': {
+      return c =>
+        c.kind === 'connection.gateway' &&
+        c.targetUri === document.targetUri &&
+        c.targetSubresourceName === document.targetSubresourceName;
+    }
+    default: {
+      targetKind satisfies never;
+    }
+  }
 }
 
 export function getServerConnectionByDocument(document: DocumentTshNode) {
@@ -58,13 +99,49 @@ export function getGatewayKubeConnectionByDocument(
     i.kind === 'connection.kube' && i.kubeUri === document.targetUri;
 }
 
+/*
+ * Getting a document by a connection.
+ */
+
+/**
+ * getGatewayDocumentByConnection looks for a DocumentGateway that has the same gateway params as
+ * the connection.
+ *
+ * ---
+ *
+ * This function is used in two scenarios. It's used when activating (clicking) a connection in the
+ * connections list to find a document to open if there's already a gateway for the given connection.
+ *
+ * The `activate` handler is also called when the user attempts to open a gateway for a database or
+ * an app. That UI action first prepares a doc with provided gateway parameters. If there's a
+ * connection which matches the gateway parameters from the doc (getGatewayConnectionByDocument),
+ * its `activate` handler is called.
+ *
+ * The second scenario is when disconnecting a connection from the connections list to find a
+ * document which should be closed.
+ */
 export function getGatewayDocumentByConnection(
   connection: TrackedGatewayConnection
-) {
-  return (i: DocumentGateway) =>
-    i.kind === 'doc.gateway' &&
-    i.targetUri === connection.targetUri &&
-    i.targetUser === connection.targetUser;
+): (d: Document) => boolean {
+  const targetKind = getDocumentGatewayTargetUriKind(connection.targetUri);
+
+  switch (targetKind) {
+    case 'db': {
+      return d =>
+        d.kind === 'doc.gateway' &&
+        d.targetUri === connection.targetUri &&
+        d.targetUser === connection.targetUser;
+    }
+    case 'app': {
+      return d =>
+        d.kind === 'doc.gateway' &&
+        d.targetUri === connection.targetUri &&
+        d.targetSubresourceName === connection.targetSubresourceName;
+    }
+    default: {
+      targetKind satisfies never;
+    }
+  }
 }
 
 export function getGatewayKubeDocumentByConnection(
@@ -103,7 +180,6 @@ export function createGatewayConnection(
     targetUser: document.targetUser,
     targetName: document.targetName,
     targetSubresourceName: document.targetSubresourceName,
-    gatewayUri: document.gatewayUri,
   };
 }
 

@@ -1,24 +1,26 @@
 /**
- * Copyright 2023 Gravitational, Inc
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { forwardRef, useRef, useState } from 'react';
+import { forwardRef, useRef, useState } from 'react';
 import styled, { css } from 'styled-components';
-import { Box, Button, Indicator, Menu, MenuItem } from 'design';
-import { Laptop, Warning } from 'design/Icon';
 
+import { blink, Box, Button, Indicator, Menu, MenuItem } from 'design';
+import { Laptop, Warning } from 'design/Icon';
 import { Attempt, AttemptStatus } from 'shared/hooks/useAsync';
 
 import { useWorkspaceContext } from 'teleterm/ui/Documents';
@@ -94,12 +96,10 @@ export function NavigationMenu() {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}
         onClose={() => setIsMenuOpened(false)}
-        menuListCss={() =>
-          css`
-            display: flex;
-            flex-direction: column;
-          `
-        }
+        menuListCss={() => css`
+          display: flex;
+          flex-direction: column;
+        `}
       >
         {isAgentConfiguredAttempt.status === 'processing' && (
           <Indicator
@@ -174,13 +174,14 @@ interface MenuIconProps {
   indicatorStatus: IndicatorStatus;
 }
 
-export const MenuIcon = forwardRef<HTMLDivElement, MenuIconProps>(
+export const MenuIcon = forwardRef<HTMLButtonElement, MenuIconProps>(
   (props, ref) => {
     return (
       <StyledButton
         setRef={ref}
         onClick={props.onClick}
-        kind="secondary"
+        intent="neutral"
+        fill="filled"
         size="small"
         title="Open Connect My Computer"
         data-testid="connect-my-computer-icon"
@@ -198,13 +199,12 @@ export const MenuIcon = forwardRef<HTMLDivElement, MenuIconProps>(
 
 const StyledButton = styled(Button)`
   position: relative;
-  background: ${props => props.theme.colors.spotBackground[0]};
   padding: 0;
   width: ${props => props.theme.space[5]}px;
   height: ${props => props.theme.space[5]}px;
 `;
 
-const StyledStatus = styled(Box)`
+const StyledStatus = styled(Box)<{ status: IndicatorStatus }>`
   position: absolute;
   top: -4px;
   right: -4px;
@@ -214,19 +214,7 @@ const StyledStatus = styled(Box)`
   border-radius: 50%;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 
-  @keyframes blink {
-    0% {
-      opacity: 0;
-    }
-    50% {
-      opacity: 100%;
-    }
-    100% {
-      opacity: 0;
-    }
-  }
-
-  animation: blink 1.4s ease-in-out;
+  animation: ${blink} 1.4s ease-in-out;
   animation-iteration-count: ${props =>
     props.status === 'processing' ? 'infinite' : '0'};
 
@@ -248,7 +236,7 @@ const StyledStatus = styled(Box)`
     }
 
     if (status === 'processing' || status === 'success') {
-      return { backgroundColor: theme.colors.success };
+      return { backgroundColor: theme.colors.success.main };
     }
 
     // 'error' status can be ignored as it's handled outside of StyledStatus.

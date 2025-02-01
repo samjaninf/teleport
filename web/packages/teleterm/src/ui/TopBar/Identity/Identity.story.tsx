@@ -1,264 +1,226 @@
 /**
- * Copyright 2023 Gravitational, Inc
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useRef, useEffect } from 'react';
+import { useLayoutEffect } from 'react';
+
 import Flex from 'design/Flex';
+import { TrustedDeviceRequirement } from 'gen-proto-ts/teleport/legacy/types/trusted_device_requirement_pb';
+import { Cluster } from 'gen-proto-ts/teleport/lib/teleterm/v1/cluster_pb';
 
 import {
   makeLoggedInUser,
   makeRootCluster,
 } from 'teleterm/services/tshd/testHelpers';
+import { MockAppContextProvider } from 'teleterm/ui/fixtures/MockAppContextProvider';
+import { MockAppContext } from 'teleterm/ui/fixtures/mocks';
+import { RootClusterUri } from 'teleterm/ui/uri';
 
-import { Identity, IdentityHandler, IdentityProps } from './Identity';
-import { IdentityRootCluster } from './useIdentity';
+import { IdentityContainer } from './Identity';
 
 export default {
   title: 'Teleterm/Identity',
 };
 
-const makeTitle = (userWithClusterName: string) => userWithClusterName;
+const clusterOrange = makeRootCluster({
+  name: 'orange',
+  loggedInUser: makeLoggedInUser({
+    name: 'bob',
+    roles: ['access', 'editor'],
+    sshLogins: ['root'],
+  }),
+  uri: '/clusters/orange',
+});
+const clusterViolet = makeRootCluster({
+  name: 'violet',
+  loggedInUser: makeLoggedInUser({ name: 'sammy' }),
+  uri: '/clusters/violet',
+});
+const clusterGreen = makeRootCluster({
+  name: 'green',
+  loggedInUser: undefined,
+  uri: '/clusters/green',
+});
 
-const OpenedIdentity = (props: IdentityProps) => {
-  const ref = useRef<IdentityHandler>();
-  useEffect(() => {
-    if (ref.current) {
-      ref.current.togglePopover();
-    }
-  }, [ref.current]);
+const profileStatusError =
+  'No YubiKey device connected with serial number 14358031. Connect the device and try again.';
+
+const OpenIdentityPopover = (props: {
+  clusters: Cluster[];
+  activeClusterUri: RootClusterUri | undefined;
+}) => {
+  const ctx = new MockAppContext();
+  props.clusters.forEach(c => {
+    ctx.addRootCluster(c);
+  });
+  ctx.workspacesService.setState(draftState => {
+    draftState.rootClusterUri = props.activeClusterUri;
+  });
+  useOpenPopover();
 
   return (
     <Flex justifyContent="end" height="40px">
-      <Identity ref={ref} {...props} />
+      <MockAppContextProvider appContext={ctx}>
+        <IdentityContainer />
+      </MockAppContextProvider>
     </Flex>
   );
 };
 
+const useOpenPopover = () => {
+  useLayoutEffect(() => {
+    const isProfileSelectorOpen = !!document.querySelector(
+      'button[title~="logout"i]'
+    );
+
+    if (isProfileSelectorOpen) {
+      return;
+    }
+
+    const button = document.querySelector(
+      'button[title~="profiles"i]'
+    ) as HTMLButtonElement;
+
+    button?.click();
+  }, []);
+};
+
 export function NoRootClusters() {
-  return (
-    <OpenedIdentity
-      makeTitle={makeTitle}
-      activeRootCluster={undefined}
-      rootClusters={[]}
-      changeRootCluster={() => Promise.resolve()}
-      logout={() => {}}
-      addCluster={() => {}}
-    />
-  );
+  return <OpenIdentityPopover clusters={[]} activeClusterUri={undefined} />;
 }
 
 export function OneClusterWithNoActiveCluster() {
-  const identityRootCluster: IdentityRootCluster = {
-    active: false,
-    clusterName: 'teleport-localhost',
-    userName: '',
-    uri: '/clusters/localhost',
-    connected: false,
-  };
-
   return (
-    <OpenedIdentity
-      makeTitle={makeTitle}
-      activeRootCluster={undefined}
-      rootClusters={[identityRootCluster]}
-      changeRootCluster={() => Promise.resolve()}
-      logout={() => {}}
-      addCluster={() => {}}
+    <OpenIdentityPopover
+      activeClusterUri={undefined}
+      clusters={[makeRootCluster({ loggedInUser: undefined })]}
     />
   );
 }
 
 export function OneClusterWithActiveCluster() {
-  const identityRootCluster: IdentityRootCluster = {
-    active: true,
-    clusterName: 'Teleport-Localhost',
-    userName: 'alice',
-    uri: '/clusters/localhost',
-    connected: true,
-  };
-
   const cluster = makeRootCluster({
-    uri: '/clusters/localhost',
-    name: 'teleport-localhost',
-    proxyHost: 'localhost:3080',
     loggedInUser: makeLoggedInUser({
       name: 'alice',
-      rolesList: ['access', 'editor'],
-      sshLoginsList: ['root'],
+      roles: ['access', 'editor'],
+      sshLogins: ['root'],
     }),
   });
 
   return (
-    <OpenedIdentity
-      makeTitle={makeTitle}
-      activeRootCluster={cluster}
-      rootClusters={[identityRootCluster]}
-      changeRootCluster={() => Promise.resolve()}
-      logout={() => {}}
-      addCluster={() => {}}
-    />
+    <OpenIdentityPopover clusters={[cluster]} activeClusterUri={cluster.uri} />
   );
 }
 
 export function ManyClustersWithNoActiveCluster() {
-  const identityRootCluster1: IdentityRootCluster = {
-    active: false,
-    clusterName: 'orange',
-    userName: 'bob',
-    uri: '/clusters/orange',
-    connected: true,
-  };
-  const identityRootCluster2: IdentityRootCluster = {
-    active: false,
-    clusterName: 'violet',
-    userName: 'sammy',
-    uri: '/clusters/violet',
-    connected: true,
-  };
-  const identityRootCluster3: IdentityRootCluster = {
-    active: false,
-    clusterName: 'green',
-    userName: '',
-    uri: '/clusters/green',
-    connected: true,
-  };
-
   return (
-    <OpenedIdentity
-      makeTitle={makeTitle}
-      activeRootCluster={undefined}
-      rootClusters={[
-        identityRootCluster1,
-        identityRootCluster2,
-        identityRootCluster3,
-      ]}
-      changeRootCluster={() => Promise.resolve()}
-      logout={() => {}}
-      addCluster={() => {}}
+    <OpenIdentityPopover
+      clusters={[clusterOrange, clusterViolet, clusterGreen]}
+      activeClusterUri={undefined}
     />
   );
 }
 
 export function ManyClustersWithActiveCluster() {
-  const identityRootCluster1: IdentityRootCluster = {
-    active: false,
-    clusterName: 'orange',
-    userName: 'bob',
-    uri: '/clusters/orange',
-    connected: true,
-  };
-  const identityRootCluster2: IdentityRootCluster = {
-    active: true,
-    clusterName: 'violet',
-    userName: 'sammy',
-    uri: '/clusters/violet',
-    connected: true,
-  };
-  const identityRootCluster3: IdentityRootCluster = {
-    active: false,
-    clusterName: 'green',
-    userName: '',
-    uri: '/clusters/green',
-    connected: true,
-  };
-
-  const activeIdentityRootCluster = identityRootCluster2;
-  const activeCluster = makeRootCluster({
-    uri: activeIdentityRootCluster.uri,
-    name: activeIdentityRootCluster.clusterName,
-    proxyHost: 'localhost:3080',
-    loggedInUser: makeLoggedInUser({
-      name: activeIdentityRootCluster.userName,
-      rolesList: ['access', 'editor'],
-      sshLoginsList: ['root'],
-    }),
-  });
-
   return (
-    <OpenedIdentity
-      makeTitle={makeTitle}
-      activeRootCluster={activeCluster}
-      rootClusters={[
-        identityRootCluster1,
-        identityRootCluster2,
-        identityRootCluster3,
+    <OpenIdentityPopover
+      clusters={[clusterOrange, clusterViolet, clusterGreen]}
+      activeClusterUri={clusterOrange.uri}
+    />
+  );
+}
+
+export function ManyClustersWithProfileErrorsAndActiveCluster() {
+  return (
+    <OpenIdentityPopover
+      clusters={[
+        makeRootCluster({ ...clusterOrange, profileStatusError }),
+        makeRootCluster({ ...clusterViolet, profileStatusError }),
+        makeRootCluster({ ...clusterGreen, profileStatusError }),
       ]}
-      changeRootCluster={() => Promise.resolve()}
-      logout={() => {}}
-      addCluster={() => {}}
+      activeClusterUri={clusterOrange.uri}
     />
   );
 }
 
 export function LongNamesWithManyRoles() {
-  const identityRootCluster1: IdentityRootCluster = {
-    active: false,
-    clusterName: 'orange',
-    userName: 'bob',
-    uri: '/clusters/orange',
-    connected: true,
-  };
-  const identityRootCluster2: IdentityRootCluster = {
-    active: true,
-    clusterName: 'psv-eindhoven-eredivisie-production-lorem-ipsum',
-    userName: 'ruud-van-nistelrooy-van-der-sar',
-    uri: '/clusters/psv',
-    connected: true,
-  };
-  const identityRootCluster3: IdentityRootCluster = {
-    active: false,
-    clusterName: 'green',
-    userName: '',
-    uri: '/clusters/green',
-    connected: true,
-  };
-
-  const activeIdentityRootCluster = identityRootCluster2;
-  const activeCluster = makeRootCluster({
-    uri: activeIdentityRootCluster.uri,
-    name: activeIdentityRootCluster.clusterName,
-    proxyHost: 'localhost:3080',
-    loggedInUser: makeLoggedInUser({
-      name: activeIdentityRootCluster.userName,
-      rolesList: [
-        'circle-mark-app-access',
-        'grafana-lite-app-access',
-        'grafana-gold-app-access',
-        'release-lion-app-access',
-        'release-fox-app-access',
-        'sales-center-lorem-app-access',
-        'sales-center-ipsum-db-access',
-        'sales-center-shop-app-access',
-        'sales-center-floor-db-access',
-      ],
-      sshLoginsList: ['root'],
-    }),
-  });
-
   return (
-    <OpenedIdentity
-      makeTitle={makeTitle}
-      activeRootCluster={activeCluster}
-      rootClusters={[
-        identityRootCluster1,
-        identityRootCluster2,
-        identityRootCluster3,
+    <OpenIdentityPopover
+      clusters={[
+        clusterOrange,
+        makeRootCluster({
+          ...clusterViolet,
+          name: 'psv-eindhoven-eredivisie-production-lorem-ipsum',
+          loggedInUser: makeLoggedInUser({
+            roles: [
+              'circle-mark-app-access',
+              'grafana-lite-app-access',
+              'grafana-gold-app-access',
+              'release-lion-app-access',
+              'release-fox-app-access',
+              'sales-center-lorem-app-access',
+              'sales-center-ipsum-db-access',
+              'sales-center-shop-app-access',
+              'sales-center-floor-db-access',
+            ],
+            name: 'ruud-van-nistelrooy-van-der-sar',
+          }),
+        }),
+        clusterGreen,
       ]}
-      changeRootCluster={() => Promise.resolve()}
-      logout={() => {}}
-      addCluster={() => {}}
+      activeClusterUri={clusterViolet.uri}
+    />
+  );
+}
+
+export function TrustedDeviceEnrolled() {
+  return (
+    <OpenIdentityPopover
+      clusters={[
+        clusterOrange,
+        makeRootCluster({
+          ...clusterViolet,
+          loggedInUser: makeLoggedInUser({
+            isDeviceTrusted: true,
+            roles: ['circle-mark-app-access', 'grafana-lite-app-access'],
+            sshLogins: ['root'],
+          }),
+        }),
+      ]}
+      activeClusterUri={clusterViolet.uri}
+    />
+  );
+}
+
+export function TrustedDeviceRequiredButNotEnrolled() {
+  return (
+    <OpenIdentityPopover
+      clusters={[
+        clusterOrange,
+        makeRootCluster({
+          ...clusterViolet,
+          loggedInUser: makeLoggedInUser({
+            trustedDeviceRequirement: TrustedDeviceRequirement.REQUIRED,
+            roles: ['circle-mark-app-access', 'grafana-lite-app-access'],
+            sshLogins: ['root'],
+          }),
+        }),
+      ]}
+      activeClusterUri={clusterViolet.uri}
     />
   );
 }

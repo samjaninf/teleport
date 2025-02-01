@@ -1,33 +1,36 @@
 /*
-Copyright 2022 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package common
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
-	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/auth"
+	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/cloud"
+	"github.com/gravitational/teleport/lib/cloud/awsconfig"
 	"github.com/gravitational/teleport/lib/srv/db/common/enterprise"
 )
 
@@ -100,21 +103,28 @@ type EngineConfig struct {
 	// Audit emits database access audit events.
 	Audit Audit
 	// AuthClient is the cluster auth server client.
-	AuthClient *auth.Client
-	// CloudClients provides access to cloud API clients.
-	CloudClients cloud.Clients
+	AuthClient *authclient.Client
+	// AWSConfigProvider provides [aws.Config] for AWS SDK service clients.
+	AWSConfigProvider awsconfig.Provider
+	// GCPClients provides access to Google Cloud API clients.
+	GCPClients cloud.GCPClients
 	// Context is the database server close context.
 	Context context.Context
 	// Clock is the clock interface.
 	Clock clockwork.Clock
 	// Log is used for logging.
-	Log logrus.FieldLogger
+	Log *slog.Logger
 	// Users handles database users.
 	Users Users
 	// DataDir is the Teleport data directory
 	DataDir string
 	// GetUserProvisioner is automatic database users creation handler.
 	GetUserProvisioner func(AutoUsers) *UserProvisioner
+	// UpdateProxiedDatabase finds the proxied database by name and uses the
+	// provided function to update the database's status. Returns
+	// trace.NotFound if the name is not found otherwise forwards the error
+	// from the provided callback function.
+	UpdateProxiedDatabase func(string, func(types.Database) error) error
 }
 
 // CheckAndSetDefaults validates the config and sets default values.
@@ -128,8 +138,11 @@ func (c *EngineConfig) CheckAndSetDefaults() error {
 	if c.AuthClient == nil {
 		return trace.BadParameter("engine config AuthClient is missing")
 	}
-	if c.CloudClients == nil {
-		return trace.BadParameter("engine config CloudClients are missing")
+	if c.AWSConfigProvider == nil {
+		return trace.BadParameter("missing AWSConfigProvider")
+	}
+	if c.GCPClients == nil {
+		return trace.BadParameter("engine config GCPClients are missing")
 	}
 	if c.Context == nil {
 		c.Context = context.Background()
@@ -138,7 +151,7 @@ func (c *EngineConfig) CheckAndSetDefaults() error {
 		c.Clock = clockwork.NewRealClock()
 	}
 	if c.Log == nil {
-		c.Log = logrus.StandardLogger()
+		c.Log = slog.Default()
 	}
 	return nil
 }

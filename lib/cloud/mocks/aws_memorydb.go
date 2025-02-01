@@ -1,54 +1,54 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package mocks
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/memorydb"
-	"github.com/aws/aws-sdk-go/service/memorydb/memorydbiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	memorydb "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	memorydbtypes "github.com/aws/aws-sdk-go-v2/service/memorydb/types"
 	"github.com/gravitational/trace"
 )
 
-// MemoryDBMock mocks AWS MemoryDB API.
-type MemoryDBMock struct {
-	memorydbiface.MemoryDBAPI
-
+// MemoryDBClient mocks AWS MemoryDB API.
+type MemoryDBClient struct {
 	Unauth    bool
-	Clusters  []*memorydb.Cluster
-	Users     []*memorydb.User
-	TagsByARN map[string][]*memorydb.Tag
+	Clusters  []memorydbtypes.Cluster
+	Users     []memorydbtypes.User
+	TagsByARN map[string][]memorydbtypes.Tag
 }
 
-func (m *MemoryDBMock) AddMockUser(user *memorydb.User, tagsMap map[string]string) {
+func (m *MemoryDBClient) AddMockUser(user memorydbtypes.User, tagsMap map[string]string) {
 	m.Users = append(m.Users, user)
-	m.addTags(aws.StringValue(user.ARN), tagsMap)
+	m.addTags(aws.ToString(user.ARN), tagsMap)
 }
 
-func (m *MemoryDBMock) addTags(arn string, tagsMap map[string]string) {
+func (m *MemoryDBClient) addTags(arn string, tagsMap map[string]string) {
 	if m.TagsByARN == nil {
-		m.TagsByARN = make(map[string][]*memorydb.Tag)
+		m.TagsByARN = make(map[string][]memorydbtypes.Tag)
 	}
 
-	var tags []*memorydb.Tag
+	var tags []memorydbtypes.Tag
 	for key, value := range tagsMap {
-		tags = append(tags, &memorydb.Tag{
+		tags = append(tags, memorydbtypes.Tag{
 			Key:   aws.String(key),
 			Value: aws.String(value),
 		})
@@ -56,31 +56,31 @@ func (m *MemoryDBMock) addTags(arn string, tagsMap map[string]string) {
 	m.TagsByARN[arn] = tags
 }
 
-func (m *MemoryDBMock) DescribeSubnetGroupsWithContext(aws.Context, *memorydb.DescribeSubnetGroupsInput, ...request.Option) (*memorydb.DescribeSubnetGroupsOutput, error) {
+func (m *MemoryDBClient) DescribeSubnetGroups(context.Context, *memorydb.DescribeSubnetGroupsInput, ...func(*memorydb.Options)) (*memorydb.DescribeSubnetGroupsOutput, error) {
 	return nil, trace.AccessDenied("unauthorized")
 }
 
-func (m *MemoryDBMock) DescribeClustersWithContext(_ aws.Context, input *memorydb.DescribeClustersInput, _ ...request.Option) (*memorydb.DescribeClustersOutput, error) {
+func (m *MemoryDBClient) DescribeClusters(_ context.Context, input *memorydb.DescribeClustersInput, _ ...func(*memorydb.Options)) (*memorydb.DescribeClustersOutput, error) {
 	if m.Unauth {
 		return nil, trace.AccessDenied("unauthorized")
 	}
-	if aws.StringValue(input.ClusterName) == "" {
+	if aws.ToString(input.ClusterName) == "" {
 		return &memorydb.DescribeClustersOutput{
 			Clusters: m.Clusters,
 		}, nil
 	}
 
 	for _, cluster := range m.Clusters {
-		if aws.StringValue(input.ClusterName) == aws.StringValue(cluster.Name) {
+		if aws.ToString(input.ClusterName) == aws.ToString(cluster.Name) {
 			return &memorydb.DescribeClustersOutput{
-				Clusters: []*memorydb.Cluster{cluster},
+				Clusters: []memorydbtypes.Cluster{cluster},
 			}, nil
 		}
 	}
-	return nil, trace.NotFound("cluster %v not found", aws.StringValue(input.ClusterName))
+	return nil, trace.NotFound("MemoryDB cluster %q not found", aws.ToString(input.ClusterName))
 }
 
-func (m *MemoryDBMock) ListTagsWithContext(_ aws.Context, input *memorydb.ListTagsInput, _ ...request.Option) (*memorydb.ListTagsOutput, error) {
+func (m *MemoryDBClient) ListTags(_ context.Context, input *memorydb.ListTagsInput, _ ...func(*memorydb.Options)) (*memorydb.ListTagsOutput, error) {
 	if m.Unauth {
 		return nil, trace.AccessDenied("unauthorized")
 	}
@@ -88,7 +88,7 @@ func (m *MemoryDBMock) ListTagsWithContext(_ aws.Context, input *memorydb.ListTa
 		return nil, trace.NotFound("no tags")
 	}
 
-	tags, ok := m.TagsByARN[aws.StringValue(input.ResourceArn)]
+	tags, ok := m.TagsByARN[aws.ToString(input.ResourceArn)]
 	if !ok {
 		return nil, trace.NotFound("no tags")
 	}
@@ -98,38 +98,45 @@ func (m *MemoryDBMock) ListTagsWithContext(_ aws.Context, input *memorydb.ListTa
 	}, nil
 }
 
-func (m *MemoryDBMock) DescribeUsersWithContext(aws.Context, *memorydb.DescribeUsersInput, ...request.Option) (*memorydb.DescribeUsersOutput, error) {
+func (m *MemoryDBClient) DescribeUsers(_ context.Context, input *memorydb.DescribeUsersInput, _ ...func(*memorydb.Options)) (*memorydb.DescribeUsersOutput, error) {
 	if m.Unauth {
 		return nil, trace.AccessDenied("unauthorized")
 	}
-	return &memorydb.DescribeUsersOutput{
-		Users: m.Users,
-	}, nil
+	if aws.ToString(input.UserName) == "" {
+		return &memorydb.DescribeUsersOutput{Users: m.Users}, nil
+	}
+	for _, u := range m.Users {
+		if aws.ToString(u.Name) == aws.ToString(input.UserName) {
+			return &memorydb.DescribeUsersOutput{Users: []memorydbtypes.User{u}}, nil
+		}
+	}
+	return nil, trace.NotFound("MemoryDB UserName %q not found", aws.ToString(input.UserName))
 }
 
-func (m *MemoryDBMock) UpdateUserWithContext(_ aws.Context, input *memorydb.UpdateUserInput, opts ...request.Option) (*memorydb.UpdateUserOutput, error) {
+func (m *MemoryDBClient) UpdateUser(_ context.Context, input *memorydb.UpdateUserInput, opts ...func(*memorydb.Options)) (*memorydb.UpdateUserOutput, error) {
 	if m.Unauth {
 		return nil, trace.AccessDenied("unauthorized")
 	}
 	for _, user := range m.Users {
-		if aws.StringValue(user.Name) == aws.StringValue(input.UserName) {
+		if aws.ToString(user.Name) == aws.ToString(input.UserName) {
 			return &memorydb.UpdateUserOutput{}, nil
 		}
 	}
-	return nil, trace.NotFound("user %s not found", aws.StringValue(input.UserName))
+	return nil, trace.NotFound("MemoryDB user %q not found", aws.ToString(input.UserName))
 }
 
-// MemoryDBCluster returns a sample memorydb.Cluster.
-func MemoryDBCluster(name, region string, opts ...func(*memorydb.Cluster)) *memorydb.Cluster {
-	cluster := &memorydb.Cluster{
+// MemoryDBCluster returns a sample memorydbtypes.Cluster.
+func MemoryDBCluster(name, region string, opts ...func(*memorydbtypes.Cluster)) *memorydbtypes.Cluster {
+	cluster := &memorydbtypes.Cluster{
 		ARN:        aws.String(fmt.Sprintf("arn:aws:memorydb:%s:123456789012:cluster:%s", region, name)),
 		Name:       aws.String(name),
 		Status:     aws.String("available"),
 		TLSEnabled: aws.Bool(true),
-		ClusterEndpoint: &memorydb.Endpoint{
+		ClusterEndpoint: &memorydbtypes.Endpoint{
 			Address: aws.String(fmt.Sprintf("clustercfg.%s.xxxxxx.memorydb.%s.amazonaws.com", name, region)),
-			Port:    aws.Int64(6379),
+			Port:    6379,
 		},
+		Engine: aws.String("redis"),
 	}
 
 	for _, opt := range opts {

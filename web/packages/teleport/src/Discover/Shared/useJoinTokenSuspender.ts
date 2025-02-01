@@ -1,32 +1,33 @@
 /**
- * Copyright 2023 Gravitational, Inc
+ * Teleport
+ * Copyright (C) 2025  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 import { useEffect, useState } from 'react';
 
 import { useTeleport } from 'teleport';
-
 import {
   ResourceKind,
   resourceKindToJoinRole,
 } from 'teleport/Discover/Shared/ResourceKind';
-
-import { useDiscover } from '../useDiscover';
-
 import type { ResourceLabel } from 'teleport/services/agents';
 import type { JoinMethod, JoinToken } from 'teleport/services/joinToken';
+import { useV1Fallback } from 'teleport/services/version/unsupported';
+
+import { useDiscover } from '../useDiscover';
 
 interface SuspendResult {
   promise?: Promise<any>;
@@ -41,11 +42,25 @@ export function clearCachedJoinTokenResult(resourceKinds: ResourceKind[]) {
   joinTokenCache.delete(resourceKinds.sort().join());
 }
 
-export function useJoinTokenSuspender(
-  resourceKinds: ResourceKind[],
-  suggestedAgentMatcherLabels: ResourceLabel[] = [],
-  joinMethod: JoinMethod = 'token'
-): {
+export function useJoinTokenSuspender({
+  resourceKinds,
+  suggestedAgentMatcherLabels = [],
+  joinMethod = 'token',
+  suggestedLabels = [],
+}: {
+  resourceKinds: ResourceKind[];
+  /**
+   * labels used for the agent that will be created
+   * using a join token (eg: db agent)
+   */
+  suggestedAgentMatcherLabels?: ResourceLabel[];
+  joinMethod?: JoinMethod;
+  /**
+   * labels for a non-agent resource that will be created
+   * using a join token (currently only can be applied to server resource kind).
+   */
+  suggestedLabels?: ResourceLabel[];
+}): {
   joinToken: JoinToken;
   reloadJoinToken: () => void;
 } {
@@ -54,23 +69,44 @@ export function useJoinTokenSuspender(
 
   const [, rerender] = useState(0);
 
+  // TODO(kimlisa): DELETE IN 19.0
+  const { tryV1Fallback } = useV1Fallback();
+
   const kindsKey = resourceKinds.sort().join();
 
   function run() {
     abortController = new AbortController();
 
+    async function fetchJoinToken() {
+      const req = {
+        roles: resourceKinds.map(resourceKindToJoinRole),
+        method: joinMethod,
+        suggestedAgentMatcherLabels,
+        suggestedLabels,
+      };
+
+      let resp: JoinToken;
+      try {
+        resp = await ctx.joinTokenService.fetchJoinTokenV2(
+          req,
+          abortController.signal
+        );
+      } catch (err) {
+        resp = await tryV1Fallback({
+          kind: 'create-join-token',
+          err,
+          req,
+          abortSignal: abortController.signal,
+          ctx,
+        });
+      }
+      return resp;
+    }
+
     const result: SuspendResult = {
       response: null,
       error: null,
-      promise: ctx.joinTokenService
-        .fetchJoinToken(
-          {
-            roles: resourceKinds.map(resourceKindToJoinRole),
-            method: joinMethod,
-            suggestedAgentMatcherLabels,
-          },
-          abortController.signal
-        )
+      promise: fetchJoinToken()
         .then(token => {
           // Probably will never happen, but just in case, otherwise
           // querying for the resource can return a false positive.

@@ -1,13 +1,13 @@
 $ErrorActionPreference = "Stop"
 
-$TELEPORT_CA_CERT_PEM = "{{.CACertPEM}}"
-$TELEPORT_CA_CERT_SHA1 = "{{.CACertSHA1}}"
-$TELEPORT_CA_CERT_BLOB_BASE64 = "{{.CACertBase64}}"
-$TELEPORT_CRL_PEM = "{{.CRLPEM}}"
-$TELEPORT_PROXY_PUBLIC_ADDR = "{{.ProxyPublicAddr}}"
-$TELEPORT_PROVISION_TOKEN = "{{.ProvisionToken}}"
+$TELEPORT_CA_CERT_PEM = '{{.CACertPEM}}'
+$TELEPORT_CA_CERT_SHA1 = '{{.CACertSHA1}}'
+$TELEPORT_CA_CERT_BLOB_BASE64 = '{{.CACertBase64}}'
+$TELEPORT_CRL_PEM = '{{.CRLPEM}}'
+$TELEPORT_PROXY_PUBLIC_ADDR = '{{.ProxyPublicAddr}}'
+$TELEPORT_PROVISION_TOKEN = '{{.ProvisionToken}}'
 
-$DB_ADDRESS = "{{.DBAddress}}"
+$DB_ADDRESS = '{{.DBAddress}}'
 $COMPUTER_NAME = ($DB_ADDRESS -split '\.')[0].ToLower()
 
 $DOMAIN_NAME=(Get-ADDomain).DNSRoot
@@ -115,7 +115,7 @@ $OUTPUT=@'
 Use the following teleport.yaml to start a Database Access Service.
 For a detailed configuration reference, see
 
-https://goteleport.com/docs/database-access/reference/configuration/
+https://goteleport.com/docs/reference/agent-services/database-access-reference/configuration/
 
 
 {0}

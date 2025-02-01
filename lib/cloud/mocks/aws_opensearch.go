@@ -1,63 +1,63 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package mocks
 
 import (
+	"context"
 	"fmt"
+	"slices"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/opensearchservice"
-	"github.com/aws/aws-sdk-go/service/opensearchservice/opensearchserviceiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	opensearch "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	opensearchtypes "github.com/aws/aws-sdk-go-v2/service/opensearch/types"
 	"github.com/gravitational/trace"
-	"golang.org/x/exp/slices"
 )
 
-type OpenSearchMock struct {
-	opensearchserviceiface.OpenSearchServiceAPI
-
+type OpenSearchClient struct {
 	Unauth    bool
-	Domains   []*opensearchservice.DomainStatus
-	TagsByARN map[string][]*opensearchservice.Tag
+	Domains   []opensearchtypes.DomainStatus
+	TagsByARN map[string][]opensearchtypes.Tag
 }
 
-func (o *OpenSearchMock) ListDomainNamesWithContext(aws.Context, *opensearchservice.ListDomainNamesInput, ...request.Option) (*opensearchservice.ListDomainNamesOutput, error) {
+func (o *OpenSearchClient) ListDomainNames(context.Context, *opensearch.ListDomainNamesInput, ...func(*opensearch.Options)) (*opensearch.ListDomainNamesOutput, error) {
 	if o.Unauth {
 		return nil, trace.AccessDenied("unauthorized")
 	}
-	out := &opensearchservice.ListDomainNamesOutput{}
+	out := &opensearch.ListDomainNamesOutput{}
 	for _, domain := range o.Domains {
-		out.DomainNames = append(out.DomainNames, &opensearchservice.DomainInfo{
+		out.DomainNames = append(out.DomainNames, opensearchtypes.DomainInfo{
 			DomainName: domain.DomainName,
-			EngineType: aws.String("OpenSearch"),
+			EngineType: opensearchtypes.EngineTypeOpenSearch,
 		})
 	}
 
 	return out, nil
 }
 
-func (o *OpenSearchMock) DescribeDomainsWithContext(_ aws.Context, input *opensearchservice.DescribeDomainsInput, _ ...request.Option) (*opensearchservice.DescribeDomainsOutput, error) {
+func (o *OpenSearchClient) DescribeDomains(_ context.Context, input *opensearch.DescribeDomainsInput, _ ...func(*opensearch.Options)) (*opensearch.DescribeDomainsOutput, error) {
 	if o.Unauth {
 		return nil, trace.AccessDenied("unauthorized")
 	}
-	out := &opensearchservice.DescribeDomainsOutput{}
+	out := &opensearch.DescribeDomainsOutput{}
 	for _, domain := range o.Domains {
-		if slices.ContainsFunc(input.DomainNames, func(other *string) bool {
-			return aws.StringValue(other) == aws.StringValue(domain.DomainName)
+		if slices.ContainsFunc(input.DomainNames, func(other string) bool {
+			return other == aws.ToString(domain.DomainName)
 		}) {
 			out.DomainStatusList = append(out.DomainStatusList, domain)
 		}
@@ -65,20 +65,20 @@ func (o *OpenSearchMock) DescribeDomainsWithContext(_ aws.Context, input *opense
 	return out, nil
 }
 
-func (o *OpenSearchMock) ListTagsWithContext(_ aws.Context, request *opensearchservice.ListTagsInput, _ ...request.Option) (*opensearchservice.ListTagsOutput, error) {
+func (o *OpenSearchClient) ListTags(_ context.Context, request *opensearch.ListTagsInput, _ ...func(*opensearch.Options)) (*opensearch.ListTagsOutput, error) {
 	if o.Unauth {
 		return nil, trace.AccessDenied("unauthorized")
 	}
-	tags, found := o.TagsByARN[aws.StringValue(request.ARN)]
+	tags, found := o.TagsByARN[aws.ToString(request.ARN)]
 	if !found {
 		return nil, trace.NotFound("tags not found")
 	}
-	return &opensearchservice.ListTagsOutput{TagList: tags}, nil
+	return &opensearch.ListTagsOutput{TagList: tags}, nil
 }
 
-// OpenSearchDomain returns a sample opensearchservice.DomainStatus.
-func OpenSearchDomain(name, region string, opts ...func(status *opensearchservice.DomainStatus)) *opensearchservice.DomainStatus {
-	domain := &opensearchservice.DomainStatus{
+// OpenSearchDomain returns a sample opensearchtypes.DomainStatus.
+func OpenSearchDomain(name, region string, opts ...func(status *opensearchtypes.DomainStatus)) *opensearchtypes.DomainStatus {
+	domain := &opensearchtypes.DomainStatus{
 		ARN:           aws.String(fmt.Sprintf("arn:aws:es:%s:123456789012:domain/%s", region, name)),
 		DomainId:      aws.String("123456789012/" + name),
 		DomainName:    aws.String(name),
@@ -95,19 +95,19 @@ func OpenSearchDomain(name, region string, opts ...func(status *opensearchservic
 	return domain
 }
 
-func WithOpenSearchVPCEndpoint(name string) func(*opensearchservice.DomainStatus) {
-	return func(status *opensearchservice.DomainStatus) {
+func WithOpenSearchVPCEndpoint(name string) func(*opensearchtypes.DomainStatus) {
+	return func(status *opensearchtypes.DomainStatus) {
 		if status.Endpoints == nil {
-			status.Endpoints = map[string]*string{}
+			status.Endpoints = map[string]string{}
 		}
-		status.Endpoints[name] = aws.String(fmt.Sprintf("vpc-%v-%v", name, aws.StringValue(status.Endpoint)))
+		status.Endpoints[name] = fmt.Sprintf("vpc-%v-%v", name, aws.ToString(status.Endpoint))
 		status.Endpoint = nil
 	}
 }
 
-func WithOpenSearchCustomEndpoint(endpoint string) func(*opensearchservice.DomainStatus) {
-	return func(status *opensearchservice.DomainStatus) {
-		status.DomainEndpointOptions = &opensearchservice.DomainEndpointOptions{
+func WithOpenSearchCustomEndpoint(endpoint string) func(*opensearchtypes.DomainStatus) {
+	return func(status *opensearchtypes.DomainStatus) {
+		status.DomainEndpointOptions = &opensearchtypes.DomainEndpointOptions{
 			CustomEndpoint:        aws.String(endpoint),
 			CustomEndpointEnabled: aws.Bool(true),
 			EnforceHTTPS:          aws.Bool(true),

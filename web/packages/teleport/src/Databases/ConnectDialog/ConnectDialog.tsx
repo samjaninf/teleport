@@ -1,32 +1,45 @@
-/*
-Copyright 2021 Gravitational, Inc.
+/**
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-import React from 'react';
-import { Text, Box, ButtonSecondary, Link } from 'design';
+import {
+  Box,
+  ButtonPrimary,
+  ButtonSecondary,
+  Flex,
+  H3,
+  Link,
+  Text,
+} from 'design';
 import Dialog, {
-  DialogHeader,
-  DialogTitle,
   DialogContent,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from 'design/Dialog';
+import { NewTab as NewTabIcon } from 'design/Icon';
+import { ResourceIcon } from 'design/ResourceIcon';
+import { getDatabaseIconName } from 'shared/components/UnifiedResources/shared/viewItemsFactory';
 import { DbProtocol } from 'shared/services/databases';
 
-import { AuthType } from 'teleport/services/user';
 import TextSelectCopy from 'teleport/components/TextSelectCopy';
-import { generateTshLoginCommand } from 'teleport/lib/util';
+import cfg from 'teleport/config';
+import { generateTshLoginCommand, openNewTab } from 'teleport/lib/util';
+import { AuthType } from 'teleport/services/user';
 
 export default function ConnectDialog({
   username,
@@ -35,7 +48,48 @@ export default function ConnectDialog({
   onClose,
   authType,
   accessRequestId,
+  dbProtocol,
+  supportsInteractive,
 }: Props) {
+  // For dynamodb and clickhouse-http protocols, the command is `tsh proxy db --tunnel` instead of `tsh db connect`.
+  let connectCommand =
+    dbProtocol == 'dynamodb' || dbProtocol == 'clickhouse-http'
+      ? 'proxy db --tunnel'
+      : 'db connect';
+
+  // Adjust `--db-name` flag based on db protocol, as it's required for
+  // some, optional for some, and unsupported by some.
+  let dbNameFlag: string;
+  switch (dbProtocol) {
+    case 'postgres':
+    case 'sqlserver':
+    case 'oracle':
+    case 'mongodb':
+    case 'spanner':
+      // Required
+      dbNameFlag = ' --db-name=<name>';
+      break;
+    case 'cassandra':
+    case 'clickhouse':
+    case 'clickhouse-http':
+    case 'dynamodb':
+    case 'opensearch':
+    case 'elasticsearch':
+    case 'redis':
+      // No flag
+      dbNameFlag = '';
+      break;
+    default:
+      // Default to optional
+      dbNameFlag = ' [--db-name=<name>]';
+  }
+
+  const onConnect = () => {
+    const url = cfg.getDbConnectRoute({ clusterId, serviceName: dbName });
+    openNewTab(url);
+    onClose();
+  };
+
   return (
     <Dialog
       dialogCss={() => ({
@@ -47,10 +101,39 @@ export default function ConnectDialog({
       open={true}
     >
       <DialogHeader mb={4}>
-        <DialogTitle>Connect To Database</DialogTitle>
+        <DialogTitle>
+          <Flex gap={2}>
+            Connect to:
+            <Flex gap={1}>
+              <ResourceIcon
+                name={getDatabaseIconName(dbProtocol)}
+                width="24px"
+                height="24px"
+              />
+              {dbName}
+            </Flex>
+          </Flex>
+        </DialogTitle>
       </DialogHeader>
+
       <DialogContent minHeight="240px" flex="0 0 auto">
+        {supportsInteractive && (
+          <Box borderBottom={1} mb={4} pb={4}>
+            <Text mb={3} bold>
+              Open Teleport-authenticated session in the browser:
+            </Text>
+            <ButtonPrimary size="large" gap={2} onClick={onConnect}>
+              Connect in the browser
+              <NewTabIcon />
+            </ButtonPrimary>
+          </Box>
+        )}
         <Box mb={4}>
+          {supportsInteractive && (
+            <H3 mt={1} mb={2}>
+              Or connect in the CLI using tsh:
+            </H3>
+          )}
           <Text bold as="span">
             Step 1
           </Text>
@@ -69,26 +152,16 @@ export default function ConnectDialog({
           <Text bold as="span">
             Step 2
           </Text>
-          {' - Retrieve credentials for the database'}
-          <TextSelectCopy
-            mt="2"
-            text={`tsh db login [--db-user=<user>] [--db-name=<name>] ${dbName}`}
-          />
-        </Box>
-        <Box mb={4}>
-          <Text bold as="span">
-            Step 3
-          </Text>
           {' - Connect to the database'}
           <TextSelectCopy
             mt="2"
-            text={`tsh db connect [--db-user=<user>] [--db-name=<name>] ${dbName}`}
+            text={`tsh ${connectCommand} ${dbName} --db-user=<user>${dbNameFlag}`}
           />
         </Box>
         {accessRequestId && (
           <Box mb={4}>
             <Text bold as="span">
-              Step 4 (Optional)
+              Step 3 (Optional)
             </Text>
             {' - When finished, drop the assumed role'}
             <TextSelectCopy mt="2" text={`tsh request drop`} />
@@ -98,7 +171,7 @@ export default function ConnectDialog({
           {`* Note: To connect with a GUI database client, see our `}
           <Link
             href={
-              'https://goteleport.com/docs/database-access/guides/gui-clients/'
+              'https://goteleport.com/docs/connect-your-client/gui-clients/'
             }
             target="_blank"
           >
@@ -122,4 +195,5 @@ export type Props = {
   clusterId: string;
   authType: AuthType;
   accessRequestId?: string;
+  supportsInteractive?: boolean;
 };

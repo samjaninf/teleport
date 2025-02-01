@@ -1,16 +1,20 @@
-// Copyright 2023 Gravitational, Inc
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package unifiedresources
 
@@ -20,6 +24,7 @@ import (
 
 	"github.com/gravitational/trace"
 
+	apiclient "github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/teleterm/clusters"
@@ -29,9 +34,11 @@ var supportedResourceKinds = []string{
 	types.KindNode,
 	types.KindDatabase,
 	types.KindKubernetesCluster,
+	types.KindApp,
+	types.KindSAMLIdPServiceProvider,
 }
 
-func List(ctx context.Context, cluster *clusters.Cluster, client Client, req *proto.ListUnifiedResourcesRequest) (*ListResponse, error) {
+func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListUnifiedResourcesClient, req *proto.ListUnifiedResourcesRequest) (*ListResponse, error) {
 	kinds := req.GetKinds()
 	if len(kinds) == 0 {
 		kinds = supportedResourceKinds
@@ -44,49 +51,77 @@ func List(ctx context.Context, cluster *clusters.Cluster, client Client, req *pr
 	}
 
 	req.Kinds = kinds
-	unifiedResourcesResponse, err := client.ListUnifiedResources(ctx, req)
+	enrichedResources, nextKey, err := apiclient.GetUnifiedResourcePage(ctx, client, req)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
 	response := &ListResponse{
-		NextKey: unifiedResourcesResponse.NextKey,
+		NextKey: nextKey,
 	}
 
-	for _, unifiedResource := range unifiedResourcesResponse.Resources {
-		switch e := unifiedResource.GetResource().(type) {
-		case *proto.PaginatedResource_Node:
+	for _, enrichedResource := range enrichedResources {
+		requiresRequest := enrichedResource.RequiresRequest
+		switch r := enrichedResource.ResourceWithLabels.(type) {
+		case types.Server:
 			response.Resources = append(response.Resources, UnifiedResource{
 				Server: &clusters.Server{
-					URI:    cluster.URI.AppendServer(e.Node.GetName()),
-					Server: e.Node,
+					URI:    cluster.URI.AppendServer(r.GetName()),
+					Server: r,
 				},
+				RequiresRequest: requiresRequest,
 			})
-		case *proto.PaginatedResource_DatabaseServer:
+		case types.DatabaseServer:
+			db := r.GetDatabase()
 			response.Resources = append(response.Resources, UnifiedResource{
 				Database: &clusters.Database{
-					URI:      cluster.URI.AppendDB(e.DatabaseServer.GetName()),
-					Database: e.DatabaseServer.GetDatabase(),
+					URI:      cluster.URI.AppendDB(db.GetName()),
+					Database: db,
 				},
+				RequiresRequest: requiresRequest,
 			})
-		case *proto.PaginatedResource_KubernetesServer:
+		case types.AppServer:
+			app := r.GetApp()
+
+			response.Resources = append(response.Resources, UnifiedResource{
+				App: &clusters.App{
+					URI:      cluster.URI.AppendApp(app.GetName()),
+					FQDN:     cluster.AssembleAppFQDN(app),
+					AWSRoles: cluster.GetAWSRoles(app),
+					App:      app,
+				},
+				RequiresRequest: requiresRequest,
+			})
+		case types.SAMLIdPServiceProvider:
+			response.Resources = append(response.Resources, UnifiedResource{
+				SAMLIdPServiceProvider: &clusters.SAMLIdPServiceProvider{
+					URI:      cluster.URI.AppendApp(r.GetName()),
+					Provider: r,
+				},
+				RequiresRequest: requiresRequest,
+			})
+		case types.KubeCluster:
+			kubeCluster := r
 			response.Resources = append(response.Resources, UnifiedResource{
 				Kube: &clusters.Kube{
-					URI:               cluster.URI.AppendKube(e.KubernetesServer.GetCluster().GetName()),
-					KubernetesCluster: e.KubernetesServer.GetCluster(),
+					URI:               cluster.URI.AppendKube(kubeCluster.GetName()),
+					KubernetesCluster: kubeCluster,
 				},
+				RequiresRequest: requiresRequest,
+			})
+		case types.KubeServer:
+			kubeCluster := r.GetCluster()
+			response.Resources = append(response.Resources, UnifiedResource{
+				Kube: &clusters.Kube{
+					URI:               cluster.URI.AppendKube(kubeCluster.GetName()),
+					KubernetesCluster: kubeCluster,
+				},
+				RequiresRequest: requiresRequest,
 			})
 		}
 	}
 
 	return response, nil
-}
-
-// Client represents auth.ClientI methods used by [List].
-// During a normal operation, auth.ClientI is passed as this interface.
-type Client interface {
-	// See auth.ClientI.ListUnifiedResources.
-	ListUnifiedResources(ctx context.Context, req *proto.ListUnifiedResourcesRequest) (*proto.ListUnifiedResourcesResponse, error)
 }
 
 type ListResponse struct {
@@ -97,7 +132,10 @@ type ListResponse struct {
 // UnifiedResource combines all resource types into a single struct.
 // Only one filed should be set at a time.
 type UnifiedResource struct {
-	Server   *clusters.Server
-	Database *clusters.Database
-	Kube     *clusters.Kube
+	Server                 *clusters.Server
+	Database               *clusters.Database
+	Kube                   *clusters.Kube
+	App                    *clusters.App
+	SAMLIdPServiceProvider *clusters.SAMLIdPServiceProvider
+	RequiresRequest        bool
 }

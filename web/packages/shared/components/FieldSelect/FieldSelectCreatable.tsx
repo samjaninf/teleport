@@ -1,102 +1,133 @@
-/*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+/**
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 import React from 'react';
+import { GroupBase, OnChangeValue } from 'react-select';
 
-import { Box, LabelInput } from 'design';
-
-import { useRule } from 'shared/components/Validation';
+import { BoxProps } from 'design/Box';
+import { useAsync } from 'shared/hooks/useAsync';
 
 import {
+  AsyncProps,
+  Option,
   SelectCreatable,
   CreatableProps as SelectCreatableProps,
 } from '../Select';
+import { SelectCreatableAsync } from '../Select/Select';
+import {
+  FieldProps,
+  FieldSelectWrapper,
+  resolveUndefinedOptions,
+  splitSelectProps,
+} from './shared';
 
-import { LabelTip, defaultRule } from './shared';
-
-export function FieldSelectCreatable({
-  components,
-  label,
-  labelTip,
-  value,
-  name,
-  onChange,
-  placeholder,
-  maxMenuHeight,
-  isClearable,
-  isMulti,
-  menuIsOpen,
-  menuPosition,
-  inputValue,
-  onKeyDown,
-  onInputChange,
-  onBlur,
-  rule = defaultRule,
-  stylesConfig,
-  isSearchable = false,
-  isSimpleValue = false,
-  autoFocus = false,
-  isDisabled = false,
-  elevated = false,
-  inputId = 'select',
-  ...styles
-}: CreatableProps) {
-  const { valid, message } = useRule(rule(value));
-  const hasError = Boolean(!valid);
-  const labelText = hasError ? message : label;
+/**
+ * Returns a styled SelectCreatable with label, input validation rule and error handling.
+ * @param {() => void} onChange - change handler.
+ * @param {defaultRule} rule - rules for the select component.
+ * @param {boolean} markAsError - manually mark the component as error.
+ * @param {string} placeholder - placeholder value.
+ * @param {string} formatCreateLabel - custom formatting for create label.
+ * @returns SelectCreatable
+ */
+export function FieldSelectCreatable<
+  Opt = Option,
+  IsMulti extends boolean = false,
+  Group extends GroupBase<Opt> = GroupBase<Opt>,
+>(props: SelectCreatableProps<Opt, IsMulti, Group> & FieldProps<Opt, IsMulti>) {
+  const { base, wrapper, others } = splitSelectProps<
+    Opt,
+    IsMulti,
+    Group,
+    typeof props
+  >(props, {});
+  const { formatCreateLabel, ...styles } = others;
   return (
-    <Box mb="4" {...styles}>
-      {label && (
-        <LabelInput htmlFor={inputId} hasError={hasError}>
-          {labelText}
-          {labelTip && <LabelTip text={labelTip} />}
-        </LabelInput>
-      )}
-      <SelectCreatable
-        components={components}
-        inputId={inputId}
-        name={name}
-        menuPosition={menuPosition}
-        hasError={hasError}
-        isSimpleValue={isSimpleValue}
-        isSearchable={isSearchable}
-        isClearable={isClearable}
-        value={value}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-        onInputChange={onInputChange}
-        onBlur={onBlur}
-        inputValue={inputValue}
-        maxMenuHeight={maxMenuHeight}
-        placeholder={placeholder}
-        isMulti={isMulti}
-        autoFocus={autoFocus}
-        isDisabled={isDisabled}
-        elevated={elevated}
-        menuIsOpen={menuIsOpen}
-        stylesConfig={stylesConfig}
+    <FieldSelectWrapper {...wrapper} {...styles}>
+      <SelectCreatable<Opt, IsMulti, Group>
+        {...base}
+        formatCreateLabel={formatCreateLabel}
       />
-    </Box>
+    </FieldSelectWrapper>
   );
 }
 
-type CreatableProps = SelectCreatableProps & {
-  autoFocus?: boolean;
-  label?: string;
-  rule?: (options: unknown) => () => unknown;
-  // styles
-  [key: string]: any;
-};
+/**
+ * A select creatable field that asynchronously loads options.
+ * The prop `loadOptions` accepts a callback that provides
+ * an `input` value used for filtering options on the call site.
+ *
+ * If `loadOptions` returns an error, the user can retry loading options by
+ * changing the input.
+ * Note: It is not possible to re-fetch the initial call for options.
+ * ReactSelect fetches them when the component mounts and then keeps in memory.
+ */
+export function FieldSelectCreatableAsync<
+  Opt = Option,
+  IsMulti extends boolean = false,
+  Group extends GroupBase<Opt> = GroupBase<Opt>,
+>(
+  props: AsyncProps<Opt, IsMulti, Group> & CreatableProps<Opt, IsMulti, Group>
+) {
+  const { base, wrapper, others } = splitSelectProps<
+    Opt,
+    IsMulti,
+    Group,
+    typeof props
+  >(props, {
+    defaultOptions: true,
+  });
+  const { defaultOptions, loadOptions, formatCreateLabel, ...styles } = others;
+  const [attempt, runAttempt] = useAsync(resolveUndefinedOptions(loadOptions));
+  return (
+    <FieldSelectWrapper {...wrapper} {...styles}>
+      <SelectCreatableAsync
+        {...base}
+        defaultOptions={defaultOptions}
+        formatCreateLabel={formatCreateLabel}
+        loadOptions={async (input, option) => {
+          const [options, error] = await runAttempt(input, option);
+          if (error) {
+            return [];
+          }
+          return options;
+        }}
+        noOptionsMessage={obj => {
+          if (attempt.status === 'error') {
+            return `Could not load options: ${attempt.error}`;
+          }
+          return base.noOptionsMessage?.(obj) ?? 'No options';
+        }}
+      />
+    </FieldSelectWrapper>
+  );
+}
+
+type CreatableProps<
+  Opt = Option,
+  IsMulti extends boolean = false,
+  Group extends GroupBase<Opt> = GroupBase<Opt>,
+> = SelectCreatableProps<Opt, IsMulti, Group> &
+  BoxProps & {
+    autoFocus?: boolean;
+    label?: string;
+    toolTipContent?: React.ReactNode;
+    rule?: (options: OnChangeValue<Opt, IsMulti>) => () => unknown;
+    markAsError?: boolean;
+    ariaLabel?: string;
+  };

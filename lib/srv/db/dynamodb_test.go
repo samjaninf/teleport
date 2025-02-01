@@ -1,18 +1,20 @@
 /*
-Copyright 2022 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package db
 
@@ -20,46 +22,29 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
-	"net/http"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	awsdynamodb "github.com/aws/aws-sdk-go/service/dynamodb"
+	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/lib/cloud/mocks"
 	"github.com/gravitational/teleport/lib/defaults"
 	libevents "github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/teleport/lib/srv/db/common"
 	"github.com/gravitational/teleport/lib/srv/db/dynamodb"
-	awsutils "github.com/gravitational/teleport/lib/utils/aws"
 )
-
-func registerTestDynamoDBEngine() {
-	// Override DynamoDB engine that is used normally with the test one
-	// with custom HTTP client.
-	common.RegisterEngine(newTestDynamoDBEngine, defaults.ProtocolDynamoDB)
-}
-
-func newTestDynamoDBEngine(ec common.EngineConfig) common.Engine {
-	return &dynamodb.Engine{
-		EngineConfig:  ec,
-		RoundTrippers: make(map[string]http.RoundTripper),
-		// inject mock AWS credentials.
-		CredentialsGetter: awsutils.NewStaticCredentialsGetter(
-			credentials.NewStaticCredentials("AKIDl", "SECRET", "SESSION"),
-		),
-	}
-}
 
 func TestAccessDynamoDB(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	mockTables := []string{"table-one", "table-two"}
-	testCtx := setupTestContext(ctx, t,
-		withDynamoDB("DynamoDB"))
+	testCtx := setupTestContext(ctx, t)
+	testCtx.server = testCtx.setupDatabaseServer(ctx, t, agentParams{
+		AWSConfigProvider: &mocks.AWSConfigProvider{},
+		Databases:         []types.Database{withDynamoDB("DynamoDB")(t, ctx, testCtx)},
+	})
 	go testCtx.startHandlingConnections()
 
 	tests := []struct {
@@ -125,22 +110,25 @@ func TestAccessDynamoDB(t *testing.T) {
 			require.NoError(t, err)
 
 			// Execute a dynamodb query.
-			out, err := clt.ListTables(&awsdynamodb.ListTablesInput{})
+			out, err := clt.ListTables(ctx, &awsdynamodb.ListTablesInput{})
 			if test.wantErrMsg != "" {
 				require.Error(t, err)
 				require.ErrorContains(t, err, test.wantErrMsg)
 				return
 			}
 			require.NoError(t, err)
-			require.ElementsMatch(t, mockTables, aws.StringValueSlice(out.TableNames))
+			require.ElementsMatch(t, mockTables, out.TableNames)
 		})
 	}
 }
 
 func TestAuditDynamoDB(t *testing.T) {
 	ctx := context.Background()
-	testCtx := setupTestContext(ctx, t,
-		withDynamoDB("DynamoDB"))
+	testCtx := setupTestContext(ctx, t)
+	testCtx.server = testCtx.setupDatabaseServer(ctx, t, agentParams{
+		AWSConfigProvider: &mocks.AWSConfigProvider{},
+		Databases:         []types.Database{withDynamoDB("DynamoDB")(t, ctx, testCtx)},
+	})
 	go testCtx.startHandlingConnections()
 
 	testCtx.createUserAndRole(ctx, t, "alice", "admin", []string{"admin"}, []string{types.Wildcard})
@@ -157,7 +145,7 @@ func TestAuditDynamoDB(t *testing.T) {
 		require.NoError(t, err)
 
 		// Execute a dynamodb query.
-		_, err = clt.ListTables(&awsdynamodb.ListTablesInput{})
+		_, err = clt.ListTables(ctx, &awsdynamodb.ListTablesInput{})
 		require.Error(t, err)
 		require.ErrorContains(t, err, "access to db denied")
 		requireEvent(t, testCtx, libevents.DatabaseSessionStartFailureCode)
@@ -174,21 +162,21 @@ func TestAuditDynamoDB(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("session starts and emits a request event", func(t *testing.T) {
-		_, err := clt.ListTables(&awsdynamodb.ListTablesInput{})
+		_, err := clt.ListTables(ctx, &awsdynamodb.ListTablesInput{})
 		require.NoError(t, err)
 		requireEvent(t, testCtx, libevents.DatabaseSessionStartCode)
 		requireEvent(t, testCtx, libevents.DynamoDBRequestCode)
 	})
 
 	t.Run("session ends when client closes the connection", func(t *testing.T) {
-		clt.Config.HTTPClient.CloseIdleConnections()
+		clt.HTTPClient.CloseIdleConnections()
 		requireEvent(t, testCtx, libevents.DatabaseSessionEndCode)
 	})
 
 	t.Run("session ends when local proxy closes the connection", func(t *testing.T) {
 		// closing local proxy and canceling the context used to start it should trigger session end event.
 		// without this cancel, the session will not end until the smaller of client_idle_timeout or the testCtx closes.
-		_, err := clt.ListTables(&awsdynamodb.ListTablesInput{})
+		_, err := clt.ListTables(ctx, &awsdynamodb.ListTablesInput{})
 		require.NoError(t, err)
 		requireEvent(t, testCtx, libevents.DatabaseSessionStartCode)
 		requireEvent(t, testCtx, libevents.DynamoDBRequestCode)

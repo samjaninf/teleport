@@ -1,18 +1,20 @@
 /*
-Copyright 2023 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package proxy
 
@@ -21,10 +23,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/gravitational/trace"
-	"golang.org/x/exp/slices"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/gravitational/teleport/api/types"
@@ -48,7 +50,8 @@ import (
 //
 // Error from server (Forbidden): "GKE Autopilot denied the request because it impersonates the "system:masters" group.
 // Your Teleport Roles [role1,role2] have given access to the "system:masters" group for the cluster "<cluster>".
-// For additional information and resolution, please visit https://goteleport.com/docs/kubernetes-access/troubleshooting/#unable-to-connect-to-gke-autopilot-clusters
+// For additional information and resolution, please visit
+// https://goteleport.com/docs/enroll-resources/kubernetes-access/troubleshooting/#unable-to-connect-to-gke-autopilot-clusters
 func (f *Forwarder) rewriteResponseForbidden(s *clusterSession) func(r *http.Response) error {
 	return func(r *http.Response) error {
 		const (
@@ -85,7 +88,7 @@ func (f *Forwarder) rewriteResponseForbidden(s *clusterSession) func(r *http.Res
 				newClientNegotiator(&globalKubeCodecs),
 			)
 			if err != nil {
-				f.log.WithError(err).Error("Failed to create encoder")
+				f.log.ErrorContext(r.Request.Context(), "Failed to create encoder", "error", err)
 				return nil
 			}
 
@@ -98,14 +101,14 @@ func (f *Forwarder) rewriteResponseForbidden(s *clusterSession) func(r *http.Res
 						"Your Teleport Roles %v have given access to the \"system:masters\" group "+
 							"for the cluster %q.\n", collectSystemMastersTeleportRoles(s), s.kubeClusterName) +
 					"For additional information and resolution, " +
-					"please visit https://goteleport.com/docs/kubernetes-access/troubleshooting/#unable-to-connect-to-gke-autopilot-clusters\n",
+					"please visit https://goteleport.com/docs/enroll-resources/kubernetes-access/troubleshooting/#unable-to-connect-to-gke-autopilot-clusters\n",
 			}
 			// Reset the buffer to write the new response.
 			b.Reset()
 
 			// Encode the new response.
 			if err = encoder.Encode(status, b); err != nil {
-				f.log.WithError(err).Error("Failed to encode response")
+				f.log.ErrorContext(r.Request.Context(), "Failed to encode response", "error", err)
 				return trace.Wrap(err)
 			}
 

@@ -1,16 +1,20 @@
-// Copyright 2023 Gravitational, Inc
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package athena
 
@@ -43,6 +47,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport"
+	auditlogpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/auditlog/v1"
+	"github.com/gravitational/teleport/api/internalutils/stream"
 	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/lib/backend/memory"
 	"github.com/gravitational/teleport/lib/events"
@@ -102,6 +108,7 @@ func (a *AthenaContext) GetLog() *Log {
 // AthenaContextConfig is optional config to override defaults in athena context.
 type AthenaContextConfig struct {
 	MaxBatchSize int
+	BypassSNS    bool
 }
 
 type InfraOutputs struct {
@@ -143,6 +150,28 @@ func (e *EventuallyConsistentAuditLogger) SearchEvents(ctx context.Context, req 
 		e.emitWasAfterLastDelay = false
 	}
 	return e.Inner.SearchEvents(ctx, req)
+}
+
+func (e *EventuallyConsistentAuditLogger) ExportUnstructuredEvents(ctx context.Context, req *auditlogpb.ExportUnstructuredEventsRequest) stream.Stream[*auditlogpb.ExportEventUnstructured] {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.emitWasAfterLastDelay {
+		time.Sleep(e.QueryDelay)
+		// clear emit delay
+		e.emitWasAfterLastDelay = false
+	}
+	return e.Inner.ExportUnstructuredEvents(ctx, req)
+}
+
+func (e *EventuallyConsistentAuditLogger) GetEventExportChunks(ctx context.Context, req *auditlogpb.GetEventExportChunksRequest) stream.Stream[*auditlogpb.EventExportChunk] {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.emitWasAfterLastDelay {
+		time.Sleep(e.QueryDelay)
+		// clear emit delay
+		e.emitWasAfterLastDelay = false
+	}
+	return e.Inner.GetEventExportChunks(ctx, req)
 }
 
 func (e *EventuallyConsistentAuditLogger) SearchSessionEvents(ctx context.Context, req events.SearchSessionEventsRequest) ([]apievents.AuditEvent, string, error) {
@@ -196,12 +225,16 @@ func SetupAthenaContext(t *testing.T, ctx context.Context, cfg AthenaContextConf
 		region = "eu-central-1"
 	}
 
+	topicARN := infraOut.TopicARN
+	if cfg.BypassSNS {
+		topicARN = topicARNBypass
+	}
 	log, err := New(ctx, Config{
 		Region:           region,
 		Clock:            clock,
 		Database:         ac.Database,
 		TableName:        ac.TableName,
-		TopicARN:         infraOut.TopicARN,
+		TopicARN:         topicARN,
 		QueueURL:         infraOut.QueueURL,
 		LocationS3:       ac.s3eventsLocation,
 		QueryResultsS3:   ac.S3ResultsLocation,
@@ -326,7 +359,7 @@ func (ac *AthenaContext) setupInfraWithCleanup(t *testing.T, ctx context.Context
 		if errors.As(err, &notFound) {
 			_, err = s3Client.CreateBucket(ctx, &s3.CreateBucketInput{
 				Bucket:                     aws.String(ac.bucketForEvents),
-				ObjectLockEnabledForBucket: true,
+				ObjectLockEnabledForBucket: aws.Bool(true),
 				CreateBucketConfiguration: &s3Types.CreateBucketConfiguration{
 					LocationConstraint: s3Types.BucketLocationConstraint(awsCfg.Region),
 				},
@@ -338,7 +371,7 @@ func (ac *AthenaContext) setupInfraWithCleanup(t *testing.T, ctx context.Context
 					ObjectLockEnabled: s3Types.ObjectLockEnabledEnabled,
 					Rule: &s3Types.ObjectLockRule{
 						DefaultRetention: &s3Types.DefaultRetention{
-							Days: 1,
+							Days: aws.Int32(1),
 							Mode: s3Types.ObjectLockRetentionModeGovernance,
 						},
 					},
@@ -376,7 +409,7 @@ func (ac *AthenaContext) setupInfraWithCleanup(t *testing.T, ctx context.Context
 				{
 					Status: s3Types.ExpirationStatusEnabled,
 					Expiration: &s3Types.LifecycleExpiration{
-						Days: 1,
+						Days: aws.Int32(1),
 					},
 					// Prefix is required field, empty means set to whole bucket.
 					Prefix: aws.String(""),

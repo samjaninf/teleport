@@ -1,17 +1,19 @@
 /**
- * Copyright 2023 Gravitational, Inc
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 import { Params, routing } from './uri';
@@ -63,59 +65,33 @@ describe('getServerUri', () => {
   /* eslint-enable jest/no-conditional-expect */
 });
 
-describe('parseConnectMyComputerUri', () => {
-  describe('valid input', () => {
-    const tests: Array<{
-      input: string;
-      output: Pick<
-        ReturnType<typeof routing.parseConnectMyComputerUri>,
-        'url' | 'params' | 'searchParams'
-      >;
-    }> = [
-      {
-        input: '/clusters/foo/connect_my_computer',
-        output: {
-          url: '/clusters/foo/connect_my_computer',
-          params: { rootClusterId: 'foo' },
-          searchParams: { username: null },
-        },
+describe('getKubeResourceNamespaceUri', () => {
+  const tests: Array<{ name: string; input: Params } & { output: string }> = [
+    {
+      name: 'returns a kube resource namespace URI for a root cluster',
+      input: {
+        rootClusterId: 'foo',
+        kubeId: 'kubeClusterName',
+        kubeNamespaceId: 'namespace',
       },
-      {
-        input:
-          '/clusters/alice.cloud.gravitational.io/connect_my_computer?username=alice',
-        output: {
-          url: '/clusters/alice.cloud.gravitational.io/connect_my_computer',
-          params: { rootClusterId: 'alice.cloud.gravitational.io' },
-          searchParams: { username: 'alice' },
-        },
+      output: '/clusters/foo/kubes/kubeClusterName/namespaces/namespace',
+    },
+    {
+      name: 'returns a kube resource namespace URI for a leaf cluster',
+      input: {
+        rootClusterId: 'foo',
+        leafClusterId: 'bar',
+        kubeId: 'kubeClusterName',
+        kubeNamespaceId: 'namespace',
       },
-      {
-        input:
-          '/clusters/foo/connect_my_computer?username=alice.bobinson@company.com',
-        output: {
-          url: '/clusters/foo/connect_my_computer',
-          params: { rootClusterId: 'foo' },
-          searchParams: { username: 'alice.bobinson@company.com' },
-        },
-      },
-    ];
-    test.each(tests)('$input', ({ input, output }) => {
-      expect(routing.parseConnectMyComputerUri(input)).toMatchObject(output);
-    });
-  });
+      output:
+        '/clusters/foo/leaves/bar/kubes/kubeClusterName/namespaces/namespace',
+    },
+  ];
 
-  describe('invalid input', () => {
-    const tests: Array<string> = [
-      '/clusters/foo/connect_my_computer/',
-      '/clusters/foo/connect_my_computer/?username=bob',
-      '/clusters/foo/connect_my_computer/bar',
-      '/clusters/foo/connect_my_computer/bar?username=bob',
-      '/clusters/foo/servers/bar',
-      'abcdef',
-    ];
-
-    test.each(tests)('%s', input => {
-      expect(routing.parseConnectMyComputerUri(input)).toBeNull();
-    });
+  /* eslint-disable jest/no-conditional-expect */
+  test.each(tests)('$name', ({ input, output }) => {
+    expect(routing.getKubeResourceNamespaceUri(input)).toEqual(output);
   });
+  /* eslint-enable jest/no-conditional-expect */
 });

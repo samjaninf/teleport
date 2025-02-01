@@ -1,226 +1,164 @@
-/*
-Copyright 2019-2020 Gravitational, Inc.
+/**
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-import React, { Suspense, useState, lazy } from 'react';
-import styled, { useTheme } from 'styled-components';
-import { Flex, Text, TopNav } from 'design';
-
+import React from 'react';
 import { matchPath, useHistory } from 'react-router';
+import { Link } from 'react-router-dom';
+import styled, { useTheme } from 'styled-components';
 
-import { BrainIcon, OpenAIIcon } from 'design/SVGIcon';
+import { Flex, Image, TopNav } from 'design';
+import { Theme } from 'design/theme/themes/types';
+import { HoverTooltip } from 'design/Tooltip';
 
-import { useLocalStorage } from 'shared/hooks/useLocalStorage';
-
-import useTeleport from 'teleport/useTeleport';
-import useStickyClusterId from 'teleport/useStickyClusterId';
+import { logos } from 'teleport/components/LogoHero/LogoHero';
 import { UserMenuNav } from 'teleport/components/UserMenuNav';
-import { useFeatures } from 'teleport/FeaturesContext';
-
 import cfg from 'teleport/config';
-
+import { useFeatures } from 'teleport/FeaturesContext';
 import { useLayout } from 'teleport/Main/LayoutContext';
+import { zIndexMap } from 'teleport/Navigation/zIndexMap';
+import { Notifications } from 'teleport/Notifications';
+import useTeleport from 'teleport/useTeleport';
 
-import { KeysEnum } from 'teleport/services/localStorage';
-import {
-  Popup,
-  PopupButton,
-  PopupFooter,
-  PopupLogos,
-  PopupLogosSpacer,
-  PopupTitle,
-  PopupTitleBackground,
-  TeleportIcon,
-} from 'teleport/Assist/Popup/Popup';
-
-import ClusterSelector from './ClusterSelector';
-import { Notifications } from './Notifications';
-import { ButtonIconContainer } from './Shared';
-
-const Assist = lazy(() => import('teleport/Assist'));
-
-const AssistButtonContainer = styled.div`
-  position: relative;
-`;
-
-const Background = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 98;
-  background: rgba(0, 0, 0, 0.6);
-`;
-
-type TopBarProps = {
-  // hidePopup indicates if the popup should be hidden based on parent component states.
-  // if true, another modal is present; and we do not want to display the assist popup.
-  // if false or absent, display as pre normal logical rules.
-  hidePopup?: boolean;
-};
-
-export function TopBar({ hidePopup = false }: TopBarProps) {
-  const theme = useTheme();
-
+export function TopBar({ CustomLogo }: TopBarProps) {
   const ctx = useTeleport();
   const history = useHistory();
   const features = useFeatures();
-
-  const assistEnabled = ctx.getFeatureFlags().assist && ctx.assistEnabled;
-
-  const [showAssistPopup, setShowAssistPopup] = useLocalStorage(
-    KeysEnum.SHOW_ASSIST_POPUP,
-    assistEnabled
-  );
-
-  const [showAssist, setShowAssist] = useState(false);
-
-  const { clusterId, hasClusterUrl } = useStickyClusterId();
-
-  const { hasDockedElement } = useLayout();
-
-  function loadClusters() {
-    return ctx.clusterService.fetchClusters();
-  }
-
-  function changeCluster(value: string) {
-    const newPrefix = cfg.getClusterRoute(value);
-
-    const oldPrefix = cfg.getClusterRoute(clusterId);
-
-    const newPath = history.location.pathname.replace(oldPrefix, newPrefix);
-
-    // TODO (avatus) DELETE IN 15 (LEGACY RESOURCES SUPPORT)
-    // this is a temporary hack to support leaf clusters _maybe_ not having access
-    // to unified resources yet. When unified resources are loaded in fetchUnifiedResources,
-    // if the response is a 404 (the endpoint doesnt exist), we:
-    // 1. push them to the servers page (old default)
-    // 2. set this variable conditionally render the "legacy" navigation
-    // When we switch clusters (to leaf or root), we remove the item and perform the check again by pushing
-    // to the resource (new default view).
-    window.localStorage.removeItem(KeysEnum.UNIFIED_RESOURCES_NOT_SUPPORTED);
-    const legacyResourceRoutes = [
-      cfg.getNodesRoute(clusterId),
-      cfg.getAppsRoute(clusterId),
-      cfg.getKubernetesRoute(clusterId),
-      cfg.getDatabasesRoute(clusterId),
-      cfg.getDesktopsRoute(clusterId),
-    ];
-
-    if (
-      legacyResourceRoutes.some(route =>
-        history.location.pathname.includes(route)
-      )
-    ) {
-      const unifiedPath = cfg
-        .getUnifiedResourcesRoute(clusterId)
-        .replace(oldPrefix, newPrefix);
-
-      history.replace(unifiedPath);
-      return;
-    }
-
-    // keep current view just change the clusterId
-    history.push(newPath);
-  }
+  const { currentWidth } = useLayout();
+  const theme: Theme = useTheme();
 
   // find active feature
-  const feature = features
-    .filter(feature => Boolean(feature.route))
-    .find(f =>
+  const feature = features.find(
+    f =>
+      f.route &&
       matchPath(history.location.pathname, {
         path: f.route.path,
         exact: f.route.exact ?? false,
       })
-    );
+  );
 
-  const title = feature?.route?.title || '';
-
-  // instead of re-creating an expensive react-select component,
-  // hide/show it instead
-  const styles = {
-    display: !hasClusterUrl ? 'none' : 'block',
-  };
+  const iconSize =
+    currentWidth >= theme.breakpoints.medium
+      ? navigationIconSizeMedium
+      : navigationIconSizeSmall;
 
   return (
-    <TopBarContainer>
-      {!hasClusterUrl && (
-        <Text fontSize="18px" bold data-testid="title">
-          {title}
-        </Text>
-      )}
-      <Text fontSize="18px" id="topbar-portal" ml={2}></Text>
-      <ClusterSelector
-        value={clusterId}
-        width="384px"
-        maxMenuHeight={200}
-        mr="20px"
-        onChange={changeCluster}
-        onLoad={loadClusters}
-        style={styles}
-      />
-      <Flex ml="auto" height="100%" alignItems="center">
-        {!hasDockedElement && assistEnabled && (
-          <AssistButtonContainer>
-            <ButtonIconContainer onClick={() => setShowAssist(true)}>
-              <BrainIcon />
-            </ButtonIconContainer>
-            {showAssistPopup && !hidePopup && (
-              <>
-                <Background />
-                <Popup data-testid="assistPopup">
-                  <PopupTitle>
-                    <PopupTitleBackground>New!</PopupTitleBackground>
-                  </PopupTitle>{' '}
-                  Try out Teleport Assist, a GPT-4-powered AI assistant that
-                  leverages your infrastructure
-                  <PopupFooter>
-                    <PopupLogos>
-                      <OpenAIIcon size={30} />
-                      <PopupLogosSpacer>+</PopupLogosSpacer>
-                      <TeleportIcon light={theme.type === 'light'} />
-                    </PopupLogos>
-
-                    <PopupButton onClick={() => setShowAssistPopup(false)}>
-                      Close
-                    </PopupButton>
-                  </PopupFooter>
-                </Popup>
-              </>
-            )}
-          </AssistButtonContainer>
-        )}
-        <Notifications />
-        <UserMenuNav username={ctx.storeUser.state.username} />
-      </Flex>
-
-      {showAssist && (
-        <Suspense fallback={null}>
-          <Assist onClose={() => setShowAssist(false)} />
-        </Suspense>
+    <TopBarContainer navigationHidden={feature?.hideNavigation}>
+      <TeleportLogo CustomLogo={CustomLogo} />
+      {!feature?.logoOnlyTopbar && (
+        <Flex height="100%" alignItems="center">
+          <Notifications iconSize={iconSize} />
+          <UserMenuNav username={ctx.storeUser.state.username} />
+        </Flex>
       )}
     </TopBarContainer>
   );
 }
 
 export const TopBarContainer = styled(TopNav)`
-  height: 72px;
-  background-color: inherit;
-  padding-left: ${({ theme }) => `${theme.space[6]}px`};
+  position: fixed;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  background: ${p => p.theme.colors.levels.surface};
   overflow-y: initial;
+  overflow-x: none;
   flex-shrink: 0;
-  border-bottom: 1px solid ${({ theme }) => theme.colors.spotBackground[0]};
+  z-index: ${zIndexMap.topBar};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.spotBackground[1]};
+
+  height: ${p => p.theme.topBarHeight[0]}px;
+  @media screen and (min-width: ${p => p.theme.breakpoints.small}px) {
+    height: ${p => p.theme.topBarHeight[1]}px;
+  }
 `;
+
+const TeleportLogo = ({ CustomLogo }: TopBarProps) => {
+  const theme = useTheme();
+  const src = logos[cfg.edition][theme.type];
+
+  return (
+    <HoverTooltip
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      transformOrigin={{ vertical: 'top', horizontal: 'center' }}
+      tipContent="Teleport Resources Home"
+      css={`
+        height: 100%;
+        margin-right: 0px;
+        @media screen and (min-width: ${p => p.theme.breakpoints.medium}px) {
+          margin-right: 76px;
+        }
+        @media screen and (min-width: ${p => p.theme.breakpoints.large}px) {
+          margin-right: 67px;
+        }
+      `}
+    >
+      <Link
+        css={`
+          cursor: pointer;
+          display: flex;
+          transition: background-color 0.1s linear;
+          &:hover {
+            background-color: ${p =>
+              p.theme.colors.interactive.tonal.primary[0]};
+          }
+          align-items: center;
+        `}
+        to={cfg.routes.root}
+      >
+        {CustomLogo ? (
+          <CustomLogo />
+        ) : (
+          <Image
+            data-testid="teleport-logo"
+            src={src}
+            alt="teleport logo"
+            css={`
+              padding-left: ${props => props.theme.space[3]}px;
+              padding-right: ${props => props.theme.space[3]}px;
+              height: 18px;
+              @media screen and (min-width: ${p =>
+                  p.theme.breakpoints.small}px) {
+                height: 28px;
+                padding-left: ${props => props.theme.space[4]}px;
+                padding-right: ${props => props.theme.space[4]}px;
+              }
+              @media screen and (min-width: ${p =>
+                  p.theme.breakpoints.large}px) {
+                height: 30px;
+              }
+            `}
+          />
+        )}
+      </Link>
+    </HoverTooltip>
+  );
+};
+
+export const navigationIconSizeSmall = 20;
+export const navigationIconSizeMedium = 24;
+
+export type NavigationItem = {
+  title: string;
+  path: string;
+  Icon: JSX.Element;
+};
+
+export type TopBarProps = {
+  CustomLogo?: () => React.ReactElement;
+  showPoweredByLogo?: boolean;
+};

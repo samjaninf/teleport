@@ -1,18 +1,20 @@
 /*
-Copyright 2022 Gravitational, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+ * Teleport
+ * Copyright (C) 2023  Gravitational, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 
 package usagereporter
 
@@ -64,7 +66,7 @@ func newFailingSubmitter(size int) (SubmitFunc[TestEvent], chan []*SubmittedEven
 // newTestingUsageReporter creates a new usage reporter that can be used in
 // tests.
 func newTestingUsageReporter(
-	clock clockwork.FakeClock, submitClock clockwork.FakeClock,
+	clock *clockwork.FakeClock, submitClock *clockwork.FakeClock,
 	submitter SubmitFunc[TestEvent],
 ) (*UsageReporter[TestEvent], context.CancelFunc, chan struct{}) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -120,7 +122,7 @@ func compareUsageEvents(t *testing.T, reporter *UsageReporter[TestEvent], inputs
 }
 
 // advanceClocks advances all the given clocks by the same duration
-func advanceClocks(dur time.Duration, clocks ...clockwork.FakeClock) {
+func advanceClocks(dur time.Duration, clocks ...*clockwork.FakeClock) {
 	for _, c := range clocks {
 		c.Advance(dur)
 	}
